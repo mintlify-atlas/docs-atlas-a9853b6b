@@ -1,0 +1,184 @@
+---
+title: TaskAgent
+description: Main entry point for the Avala Agents SDK
+---
+
+## Overview
+
+The `TaskAgent` class is the core component for building agents that process annotation workflow events. It handles polling the Avala API, dispatching events to registered handlers, and submitting actions back to the platform.
+
+## Constructor
+
+```python
+from avala_agents import TaskAgent
+
+agent = TaskAgent(
+    api_key="avk_...",
+    name="quality-checker",
+    project="proj_123",
+    task_types=["image_classification"],
+    poll_interval=5.0
+)
+```
+
+### Parameters
+
+<ParamField path="api_key" type="str | None" default="None">
+  Avala API key (format: `avk_...`). If not provided, falls back to the `AVALA_API_KEY` environment variable.
+</ParamField>
+
+<ParamField path="base_url" type="str | None" default="None">
+  Override the API base URL. Falls back to the `AVALA_BASE_URL` environment variable, then defaults to `https://api.avala.ai/api/v1`.
+</ParamField>
+
+<ParamField path="name" type="str" default="default-agent">
+  Logical name for this agent instance. Used to identify the agent in the Avala dashboard.
+</ParamField>
+
+<ParamField path="project" type="str | None" default="None">
+  Optional project UID. When set, only executions belonging to that project are returned.
+</ParamField>
+
+<ParamField path="task_types" type="list[str] | None" default="None">
+  Optional list of task type identifiers to filter on. Only executions matching these task types will be processed.
+</ParamField>
+
+<ParamField path="poll_interval" type="float" default="5.0">
+  Seconds between polling requests when the queue is empty.
+</ParamField>
+
+### Raises
+
+- `ValueError`: If no API key is provided via parameter or environment variable.
+
+## Methods
+
+### on()
+
+Decorator to register an event handler.
+
+```python
+@agent.on("result.submitted")
+def handle_submission(context):
+    if not context.result_data:
+        context.reject("No annotations found")
+    else:
+        context.approve()
+```
+
+#### Parameters
+
+<ParamField path="event" type="str" required>
+  One of the supported event identifiers. See [Event Types](/api/event-types) for the full list of available events.
+</ParamField>
+
+#### Returns
+
+<ResponseField name="decorator" type="Callable">
+  Returns a decorator function that registers the handler and returns the original function unchanged.
+</ResponseField>
+
+#### Raises
+
+- `ValueError`: If `event` is not a recognized event identifier.
+
+### run()
+
+Start the blocking polling loop.
+
+```python
+agent.run()  # Runs indefinitely, interrupt with Ctrl-C
+```
+
+Registers the agent with the server on first call, then polls indefinitely for pending executions. The loop can be interrupted with `Ctrl-C`.
+
+#### Raises
+
+- `AgentRegistrationError`: If the agent cannot be registered with the server.
+- `AgentTimeoutError`: If a timeout occurs during registration.
+
+### run_once()
+
+Process all currently pending executions once (non-blocking).
+
+```python
+processed = agent.run_once()
+print(f"Processed {processed} executions")
+```
+
+Registers the agent with the server if not already registered, processes all pending executions, and returns immediately.
+
+#### Returns
+
+<ResponseField name="count" type="int">
+  Number of executions processed.
+</ResponseField>
+
+#### Raises
+
+- `AgentRegistrationError`: If the agent cannot be registered with the server.
+- `AgentTimeoutError`: If a timeout occurs during registration.
+
+### close()
+
+Release the underlying HTTP connection pool.
+
+```python
+agent.close()
+```
+
+This method is automatically called when using the agent as a context manager.
+
+## Context Manager Support
+
+The `TaskAgent` class supports the context manager protocol:
+
+```python
+with TaskAgent(api_key="avk_...", name="my-agent") as agent:
+    @agent.on("result.submitted")
+    def handle(context):
+        context.approve()
+    
+    agent.run_once()
+# Connection pool automatically closed
+```
+
+## Complete Example
+
+```python
+from avala_agents import TaskAgent
+
+agent = TaskAgent(
+    api_key="avk_...",
+    name="quality-checker",
+    project="proj_abc123",
+    poll_interval=3.0
+)
+
+@agent.on("result.submitted")
+def check_quality(context):
+    # Reject if no annotations provided
+    if not context.result_data:
+        context.reject("No annotations found")
+        return
+    
+    # Flag if suspicious metadata
+    if context.result_metadata.get("time_spent", 0) < 5:
+        context.flag("Completed too quickly")
+        return
+    
+    # Otherwise approve
+    context.approve()
+
+@agent.on("task.completed")
+def on_task_complete(context):
+    print(f"Task {context.task_uid} completed")
+    context.skip()
+
+# Start processing
+try:
+    agent.run()
+except KeyboardInterrupt:
+    print("Shutting down...")
+    agent.close()
+```

@@ -1,0 +1,149 @@
+---
+title: "Quality Checker Agent"
+description: "Build a basic quality checking agent that validates annotations and rejects empty results"
+---
+
+This example demonstrates how to build a simple quality checking agent that validates annotation results before they're accepted into your workflow.
+
+## Overview
+
+The quality checker agent:
+- Listens for `result.submitted` events
+- Validates that annotations exist
+- Rejects results with no annotations
+- Approves valid results
+
+## Complete Example
+
+```python
+from avala_agents import TaskAgent
+
+agent = TaskAgent(
+    api_key="avk_...",
+    name="quality-checker",
+    project="proj_uid",  # optional: scope to a single project
+)
+
+@agent.on("result.submitted")
+def check_quality(context):
+    """Validate that the result contains annotations."""
+    annotations = context.result_data
+
+    if len(annotations) == 0:
+        context.reject("No annotations found")
+    else:
+        context.approve()
+
+agent.run()  # blocks; polls for pending executions
+```
+
+## How It Works
+
+<Steps>
+  <Step title="Initialize the agent">
+    Create a `TaskAgent` instance with your API key and a descriptive name. Optionally scope it to a specific project.
+
+    ```python
+    agent = TaskAgent(
+        api_key="avk_...",
+        name="quality-checker",
+        project="proj_uid",
+    )
+    ```
+  </Step>
+
+  <Step title="Register an event handler">
+    Use the `@agent.on()` decorator to register a handler for the `result.submitted` event.
+
+    ```python
+    @agent.on("result.submitted")
+    def check_quality(context):
+        # Your validation logic here
+        pass
+    ```
+  </Step>
+
+  <Step title="Access result data">
+    The `context` parameter is a `ResultContext` object containing the annotation data and metadata.
+
+    ```python
+    annotations = context.result_data  # list of annotation dicts
+    ```
+  </Step>
+
+  <Step title="Make a decision">
+    Call one of the action methods to submit your decision:
+    - `context.approve()` - Accept the result
+    - `context.reject(reason)` - Reject with a reason
+    - `context.flag(reason)` - Flag for manual review
+    - `context.skip()` - Acknowledge without action
+
+    ```python
+    if len(annotations) == 0:
+        context.reject("No annotations found")
+    else:
+        context.approve()
+    ```
+  </Step>
+
+  <Step title="Start the agent">
+    Call `agent.run()` to start the polling loop. This blocks and processes events continuously.
+
+    ```python
+    agent.run()
+    ```
+  </Step>
+</Steps>
+
+## Available Context Properties
+
+The `ResultContext` object provides access to:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `result_data` | `list[dict]` | The annotation data submitted by the annotator |
+| `result_metadata` | `dict` | Custom metadata attached to the result |
+| `result_uid` | `str` | Unique identifier for this result |
+| `task_uid` | `str` | Unique identifier for the parent task |
+| `task_name` | `str \| None` | Human-readable task name |
+| `task_type` | `str \| None` | Task type identifier |
+| `project_uid` | `str \| None` | Project this result belongs to |
+| `event_type` | `str` | The event that triggered this execution |
+
+## Running in Production
+
+<Note>
+  Store your API key securely using environment variables instead of hardcoding it.
+</Note>
+
+```python
+import os
+from avala_agents import TaskAgent
+
+agent = TaskAgent(
+    api_key=os.environ["AVALA_API_KEY"],
+    name="quality-checker",
+)
+
+@agent.on("result.submitted")
+def check_quality(context):
+    if len(context.result_data) == 0:
+        context.reject("No annotations found")
+    else:
+        context.approve()
+
+if __name__ == "__main__":
+    agent.run()
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Confidence Filter" icon="filter" href="/examples/confidence-filter">
+    Filter results based on confidence scores
+  </Card>
+  
+  <Card title="Multi-Event Agent" icon="layer-group" href="/examples/multi-event-agent">
+    Handle multiple event types in one agent
+  </Card>
+</CardGroup>

@@ -1,0 +1,311 @@
+---
+title: Events
+description: Understand all event types supported by the Avala Agents SDK
+---
+
+The Avala Agents SDK supports nine event types across four categories: result events, task events, dataset events, and export events. Each event type triggers handlers with different context objects.
+
+## Event categories
+
+### Result events
+
+Result events fire when annotation results move through your workflow. Handlers receive a [`ResultContext`](/concepts/contexts#resultcontext) object.
+
+#### `result.submitted`
+
+Triggered when an annotator submits a new annotation result.
+
+```python
+@agent.on("result.submitted")
+def review_submission(context):
+    # Validate annotation quality
+    if len(context.result_data) < 3:
+        context.reject("Need at least 3 annotations")
+    else:
+        context.approve()
+```
+
+**Use cases:**
+- Quality validation
+- Automated review workflows
+- Compliance checking
+- Data validation
+
+#### `result.accepted`
+
+Triggered when a result is accepted by a reviewer or another agent in the workflow.
+
+```python
+@agent.on("result.accepted")
+def log_acceptance(context):
+    print(f"Result {context.result_uid} accepted")
+    context.skip()
+```
+
+**Use cases:**
+- Post-acceptance processing
+- Metrics collection
+- Notification triggers
+- Downstream integrations
+
+#### `result.rejected`
+
+Triggered when a result is rejected and sent back for correction.
+
+```python
+@agent.on("result.rejected")
+def track_rejection(context):
+    # Log rejection for quality metrics
+    metadata = context.result_metadata
+    print(f"Rejection logged: {metadata}")
+    context.skip()
+```
+
+**Use cases:**
+- Rejection analytics
+- Annotator feedback loops
+- Quality monitoring
+- Escalation workflows
+
+### Task events
+
+Task events fire when tasks reach certain states. Handlers receive a [`TaskContext`](/concepts/contexts#taskcontext) object.
+
+#### `task.completed`
+
+Triggered when a task reaches completion status.
+
+```python
+@agent.on("task.completed")
+def finalize_task(context):
+    print(f"Task completed: {context.task_name}")
+    print(f"Status: {context.task_status}")
+    context.approve()
+```
+
+**Use cases:**
+- Task completion notifications
+- Workflow progression
+- Metrics aggregation
+- Triggering downstream processes
+
+### Dataset events
+
+Dataset events fire when datasets are created, modified, or deleted. Handlers receive an [`EventContext`](/concepts/contexts#eventcontext) object.
+
+#### `dataset.created`
+
+Triggered when a new dataset is created in the project.
+
+```python
+@agent.on("dataset.created")
+def initialize_dataset(context):
+    dataset_uid = context.resource_uid
+    print(f"New dataset created: {dataset_uid}")
+    # Initialize dataset-specific resources
+    context.skip()
+```
+
+**Use cases:**
+- Dataset initialization
+- Resource provisioning
+- Access control setup
+- Audit logging
+
+#### `dataset.updated`
+
+Triggered when a dataset is modified.
+
+```python
+@agent.on("dataset.updated")
+def sync_dataset(context):
+    payload = context.payload
+    print(f"Dataset {context.resource_uid} updated")
+    # Sync with external systems
+    context.skip()
+```
+
+**Use cases:**
+- Cache invalidation
+- External system synchronization
+- Version tracking
+- Change notifications
+
+#### `dataset.deleted`
+
+Triggered when a dataset is deleted from the project.
+
+```python
+@agent.on("dataset.deleted")
+def cleanup_dataset(context):
+    dataset_uid = context.resource_uid
+    print(f"Dataset deleted: {dataset_uid}")
+    # Clean up external resources
+    context.skip()
+```
+
+**Use cases:**
+- Resource cleanup
+- Archive operations
+- Cascade deletions
+- Compliance logging
+
+### Export events
+
+Export events fire when export jobs complete or fail. Handlers receive an [`EventContext`](/concepts/contexts#eventcontext) object.
+
+#### `export.completed`
+
+Triggered when an export job finishes successfully.
+
+```python
+@agent.on("export.completed")
+def process_export(context):
+    export_uid = context.resource_uid
+    export_data = context.payload
+    print(f"Export {export_uid} completed")
+    # Process or distribute the export
+    context.skip()
+```
+
+**Use cases:**
+- Export post-processing
+- Data distribution
+- Backup triggers
+- Integration with data pipelines
+
+#### `export.failed`
+
+Triggered when an export job fails.
+
+```python
+@agent.on("export.failed")
+def handle_export_failure(context):
+    export_uid = context.resource_uid
+    error_info = context.payload
+    print(f"Export {export_uid} failed: {error_info}")
+    # Alert or retry logic
+    context.skip()
+```
+
+**Use cases:**
+- Error alerting
+- Retry mechanisms
+- Failure logging
+- Incident tracking
+
+## Event constants
+
+The SDK defines several event collections in `avala_agents._types`:
+
+```python
+# All supported events
+AGENT_EVENTS = [
+    "dataset.created",
+    "dataset.updated",
+    "dataset.deleted",
+    "export.completed",
+    "export.failed",
+    "task.completed",
+    "result.submitted",
+    "result.accepted",
+    "result.rejected",
+]
+
+# Result-level events
+RESULT_EVENTS = {
+    "result.submitted",
+    "result.accepted",
+    "result.rejected",
+}
+
+# Task-level events
+TASK_EVENTS = {
+    "task.completed",
+}
+
+# Dataset-level events
+DATASET_EVENTS = {
+    "dataset.created",
+    "dataset.updated",
+    "dataset.deleted",
+}
+
+# Export-level events
+EXPORT_EVENTS = {
+    "export.completed",
+    "export.failed",
+}
+```
+
+## Event payload structure
+
+Each event carries a payload with relevant data. The SDK automatically unpacks this into the appropriate context object:
+
+```python
+@dataclass
+class AgentEvent:
+    """Raw event received from the agent executions API."""
+    execution_uid: str
+    event_type: str
+    payload: dict[str, Any]
+```
+
+<Info>
+You don't need to work with `AgentEvent` directly. The SDK converts it to the appropriate context type (`ResultContext`, `TaskContext`, or `EventContext`) before passing it to your handler.
+</Info>
+
+## Multiple handlers
+
+You can register one handler per event type:
+
+```python
+agent = TaskAgent(api_key="avk_...", name="multi-handler")
+
+@agent.on("result.submitted")
+def validate(context):
+    context.approve()
+
+@agent.on("result.rejected")
+def track_rejection(context):
+    context.skip()
+
+@agent.on("task.completed")
+def finalize(context):
+    context.approve()
+```
+
+<Warning>
+Registering a second handler for the same event type will replace the first one. Each event type can only have one handler.
+</Warning>
+
+## Filtering events
+
+You can filter which events reach your agent using the constructor parameters:
+
+```python
+# Only process events from a specific project
+agent = TaskAgent(
+    api_key="avk_...",
+    name="project-agent",
+    project="proj_abc123"
+)
+
+# Only process specific task types
+agent = TaskAgent(
+    api_key="avk_...",
+    name="task-type-agent",
+    task_types=["image-classification", "text-annotation"]
+)
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Contexts" icon="cube" href="/concepts/contexts">
+    Learn about context objects passed to event handlers
+  </Card>
+  <Card title="Actions" icon="check" href="/concepts/actions">
+    Explore actions you can take on events
+  </Card>
+</CardGroup>

@@ -1,0 +1,67 @@
+---
+title: Security
+description: Security policy, vulnerability reporting, and best practices for the Avala Agents SDK
+---
+
+## Reporting a vulnerability
+
+If you discover a security vulnerability in the Avala Agents SDK, please report it responsibly.
+
+<Warning>
+**Do not open a public GitHub issue for security vulnerabilities.**
+
+Instead, email **security@avala.ai** with:
+- A description of the vulnerability
+- Steps to reproduce
+- Affected versions
+- Any potential impact
+
+We will acknowledge your report within 2 business days and provide a timeline for a fix.
+</Warning>
+
+## Supported versions
+
+| Version | Supported |
+|---------|----------|
+| Latest  | Yes      |
+| < Latest | No      |
+
+<Note>
+We recommend always using the latest version. Install or upgrade with:
+
+```bash
+pip install --upgrade avala-agents
+```
+</Note>
+
+## Security best practices
+
+Follow these guidelines to ensure secure usage of the Avala Agents SDK:
+
+<AccordionGroup>
+  <Accordion title="Never hardcode API keys">
+    Always use environment variables to store your API keys:
+    
+    ```bash
+    export AVALA_API_KEY="your-api-key"
+    ```
+    
+    The SDK automatically reads from the `AVALA_API_KEY` environment variable.
+  </Accordion>
+
+  <Accordion title="Rotate API keys periodically">
+    Regularly rotate your API keys via the [Avala dashboard](https://control.avala.ai) to minimize the risk of compromised credentials.
+  </Accordion>
+
+  <Accordion title="Use scoped API keys">
+    Create API keys with minimal required permissions for your specific use case. This limits potential damage if a key is compromised.
+  </Accordion>
+
+  <Accordion title="Keep the SDK updated">
+    Always use the latest version of the SDK to receive security patches and improvements:
+    
+    ```bash
+    pip install --upgrade avala-agents
+    ```
+  </Accordion>
+</AccordionGroup>

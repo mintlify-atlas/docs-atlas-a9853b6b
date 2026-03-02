@@ -1,0 +1,210 @@
+---
+title: TaskContext
+description: Context object for task event handlers
+---
+
+## Overview
+
+The `TaskContext` dataclass is passed to handlers registered for task events (`task.completed`). It provides access to task state information and exposes action methods to submit decisions back to the Avala platform.
+
+## Attributes
+
+<ResponseField name="execution_uid" type="str">
+  Unique identifier for this agent execution.
+</ResponseField>
+
+<ResponseField name="event_type" type="str">
+  The event type that triggered this execution (e.g., `"task.completed"`).
+</ResponseField>
+
+<ResponseField name="task_uid" type="str">
+  Unique identifier for this task.
+</ResponseField>
+
+<ResponseField name="task_name" type="str | None">
+  Human-readable name of the task, if available.
+</ResponseField>
+
+<ResponseField name="task_type" type="str | None">
+  Task type identifier (e.g., `"image_classification"`, `"ner"`), if available.
+</ResponseField>
+
+<ResponseField name="task_status" type="str | None">
+  Current status of the task (e.g., `"completed"`, `"pending"`), if available.
+</ResponseField>
+
+<ResponseField name="project_uid" type="str | None">
+  Unique identifier for the project this task belongs to, if available.
+</ResponseField>
+
+## Methods
+
+### approve()
+
+Approve this task execution.
+
+```python
+@agent.on("task.completed")
+def handle(context):
+    context.approve("Task completion verified")
+```
+
+#### Parameters
+
+<ParamField path="reason" type="str" default='""'>
+  Optional human-readable explanation for the approval.
+</ParamField>
+
+#### Raises
+
+- `AgentActionError`: If the action submission fails.
+- `AgentTimeoutError`: If the action submission times out.
+
+### reject()
+
+Reject this task execution.
+
+```python
+@agent.on("task.completed")
+def handle(context):
+    context.reject("Task requires additional review")
+```
+
+#### Parameters
+
+<ParamField path="reason" type="str" default='""'>
+  Human-readable explanation for the rejection.
+</ParamField>
+
+#### Raises
+
+- `AgentActionError`: If the action submission fails.
+- `AgentTimeoutError`: If the action submission times out.
+
+### flag()
+
+Flag this task execution for manual review.
+
+```python
+@agent.on("task.completed")
+def handle(context):
+    context.flag("Unusual task completion pattern detected")
+```
+
+#### Parameters
+
+<ParamField path="reason" type="str" default='""'>
+  Human-readable explanation for the reviewer.
+</ParamField>
+
+#### Raises
+
+- `AgentActionError`: If the action submission fails.
+- `AgentTimeoutError`: If the action submission times out.
+
+### skip()
+
+Acknowledge the execution without taking any workflow action.
+
+```python
+@agent.on("task.completed")
+def handle(context):
+    print(f"Task {context.task_uid} completed")
+    context.skip()
+```
+
+#### Raises
+
+- `AgentActionError`: If the action submission fails.
+- `AgentTimeoutError`: If the action submission times out.
+
+## Usage Examples
+
+### Simple Task Completion Handler
+
+```python
+@agent.on("task.completed")
+def on_task_complete(context):
+    print(f"Task {context.task_uid} ({context.task_name}) completed")
+    context.approve()
+```
+
+### Task Type-Specific Logic
+
+```python
+@agent.on("task.completed")
+def handle_completion(context):
+    if context.task_type == "image_classification":
+        # Custom logic for classification tasks
+        print(f"Classification task {context.task_uid} completed")
+        context.approve("Classification task verified")
+    
+    elif context.task_type == "transcription":
+        # Custom logic for transcription tasks
+        print(f"Transcription task {context.task_uid} completed")
+        context.approve("Transcription task verified")
+    
+    else:
+        # Unknown task type - just acknowledge
+        context.skip()
+```
+
+### Task Completion Logging
+
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+
+@agent.on("task.completed")
+def log_completion(context):
+    logger.info(
+        "Task completed",
+        extra={
+            "task_uid": context.task_uid,
+            "task_type": context.task_type,
+            "task_name": context.task_name,
+            "project_uid": context.project_uid,
+            "status": context.task_status,
+        }
+    )
+    context.skip()
+```
+
+### Conditional Approval
+
+```python
+@agent.on("task.completed")
+def review_completion(context):
+    # Only approve tasks from specific projects
+    approved_projects = ["proj_abc", "proj_def"]
+    
+    if context.project_uid in approved_projects:
+        context.approve("Project approved for auto-completion")
+    else:
+        context.flag("Task from non-approved project - needs review")
+```
+
+### Integration with External Services
+
+```python
+import requests
+
+@agent.on("task.completed")
+def notify_external_system(context):
+    # Send notification to external system
+    try:
+        response = requests.post(
+            "https://example.com/webhooks/task-completed",
+            json={
+                "task_uid": context.task_uid,
+                "task_type": context.task_type,
+                "project_uid": context.project_uid,
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        context.approve("Notification sent successfully")
+    except requests.RequestException as e:
+        context.flag(f"Failed to notify external system: {e}")
+```

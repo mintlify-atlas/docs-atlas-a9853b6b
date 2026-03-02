@@ -1,0 +1,633 @@
+---
+title: Best Practices
+description: Security, performance, and reliability guidelines for building production-ready Avala agents
+---
+
+## Security
+
+### API Key Management
+
+<Warning>
+Never hardcode API keys in source code or commit them to version control.
+</Warning>
+
+#### Use Environment Variables
+
+```python
+import os
+from avala_agents import TaskAgent
+
+# Good: Read from environment
+agent = TaskAgent(
+    api_key=os.environ["AVALA_API_KEY"],
+    name="my-agent"
+)
+```
+
+#### Secure Storage Options
+
+<AccordionGroup>
+  <Accordion title="Environment Variables (.env files)">
+    ```bash
+    # .env
+    AVALA_API_KEY=avk_...
+    ```
+    
+    ```python
+    from dotenv import load_dotenv
+    from avala_agents import TaskAgent
+    
+    load_dotenv()
+    agent = TaskAgent()  # Reads AVALA_API_KEY from environment
+    ```
+    
+    Add `.env` to `.gitignore`!
+  </Accordion>
+
+  <Accordion title="Secrets Management (AWS Secrets Manager)">
+    ```python
+    import boto3
+    from avala_agents import TaskAgent
+    
+    def get_secret():
+        client = boto3.client('secretsmanager')
+        response = client.get_secret_value(SecretId='avala/api-key')
+        return response['SecretString']
+    
+    agent = TaskAgent(api_key=get_secret())
+    ```
+  </Accordion>
+
+  <Accordion title="Container Secrets (Docker/Kubernetes)">
+    ```yaml
+    # kubernetes-secret.yaml
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: avala-credentials
+    type: Opaque
+    stringData:
+      api-key: avk_...
+    ```
+    
+    ```yaml
+    # deployment.yaml
+    env:
+      - name: AVALA_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: avala-credentials
+            key: api-key
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Network Security
+
+#### Always Use HTTPS
+
+The default base URL uses HTTPS (see _agent.py:25). When overriding, ensure you use a secure connection:
+
+```python
+# Good: HTTPS
+agent = TaskAgent(
+    api_key="avk_...",
+    base_url="https://custom.avala.ai/api/v1"
+)
+
+# Bad: HTTP (insecure!)
+agent = TaskAgent(
+    api_key="avk_...",
+    base_url="http://custom.avala.ai/api/v1"  # Don't do this!
+)
+```
+
+#### Timeout Configuration
+
+The SDK uses a 30-second timeout by default (see _agent.py:96). This prevents hanging connections:
+
+```python
+# Timeout is configured internally
+# Network errors are caught and converted to AgentTimeoutError
+```
+
+## Error Handling
+
+### Always Handle Exceptions in Handlers
+
+```python
+import logging
+from avala_agents import TaskAgent, AgentActionError
+
+logger = logging.getLogger(__name__)
+agent = TaskAgent(api_key="avk_...")
+
+@agent.on("result.submitted")
+def handle(context):
+    try:
+        # Your business logic
+        result = validate_annotations(context.result_data)
+        
+        if result.is_valid:
+            context.approve()
+        else:
+            context.reject(result.reason)
+    except ValueError as e:
+        logger.error("Validation error: %s", e)
+        context.reject(f"Invalid data: {e}")
+    except AgentActionError as e:
+        logger.exception("Failed to submit action: %s", e)
+        # Exception is propagated; runner will skip execution
+    except Exception as e:
+        logger.exception("Unexpected error: %s", e)
+        # Runner will catch and skip (see _runner.py:70-88)
+```
+
+<Info>
+Unhandled exceptions in handlers are automatically caught by the runner, logged, and the execution is skipped (see _runner.py:73-88).
+</Info>
+
+### Use Specific Exception Types
+
+```python
+from avala_agents import (
+    TaskAgent,
+    AgentError,
+    AgentTimeoutError,
+    AgentActionError,
+    AgentRegistrationError
+)
+
+agent = TaskAgent(api_key="avk_...")
+
+try:
+    agent.run()
+except AgentRegistrationError as e:
+    # Handle registration failures (invalid API key, etc.)
+    logger.critical("Cannot register agent: %s", e)
+    send_alert("Agent registration failed")
+except AgentTimeoutError as e:
+    # Handle network timeouts
+    logger.error("Network timeout: %s", e)
+    # Maybe retry or alert
+except KeyboardInterrupt:
+    logger.info("Agent stopped by user")
+except AgentError as e:
+    # Catch-all for other agent errors
+    logger.exception("Agent error: %s", e)
+finally:
+    agent.close()
+```
+
+## Resource Management
+
+### Always Clean Up Resources
+
+The `TaskAgent` maintains an HTTP connection pool that must be released (see _agent.py:157-159).
+
+<CodeGroup>
+```python Context Manager (Recommended)
+from avala_agents import TaskAgent
+
+with TaskAgent(api_key="avk_...") as agent:
+    @agent.on("result.submitted")
+    def handle(context):
+        context.approve()
+    
+    agent.run()
+# agent.close() called automatically
+```
+
+```python Try-Finally Block
+from avala_agents import TaskAgent
+
+agent = TaskAgent(api_key="avk_...")
+
+try:
+    agent.run()
+finally:
+    agent.close()  # Always called, even on error
+```
+</CodeGroup>
+
+<Warning>
+Failing to call `close()` may result in resource leaks and connection pool exhaustion.
+</Warning>
+
+### Serverless Best Practices
+
+In serverless environments (AWS Lambda, Google Cloud Functions), reuse the agent instance:
+
+```python
+import os
+from avala_agents import TaskAgent
+
+# Initialize once, outside the handler
+agent = TaskAgent(api_key=os.environ["AVALA_API_KEY"])
+
+@agent.on("result.submitted")
+def review(context):
+    context.approve()
+
+def lambda_handler(event, context):
+    """Reuses agent and HTTP connection pool."""
+    count = agent.run_once()
+    return {"processed": count}
+
+# Don't call agent.close() in serverless!
+# The container may be reused
+```
+
+## Performance
+
+### Poll Interval Tuning
+
+Balance responsiveness and API load:
+
+```python
+agent = TaskAgent(
+    api_key="avk_...",
+    poll_interval=5.0  # Default: good for most use cases
+)
+
+# High-priority agents (faster response)
+agent_urgent = TaskAgent(
+    api_key="avk_...",
+    poll_interval=2.0  # Poll every 2 seconds
+)
+
+# Low-priority agents (reduce API load)
+agent_batch = TaskAgent(
+    api_key="avk_...",
+    poll_interval=30.0  # Poll every 30 seconds
+)
+```
+
+<Tip>
+Start with the default 5 seconds and adjust based on your latency requirements and API rate limits.
+</Tip>
+
+### Filter Aggressively
+
+Use `project` and `task_types` to minimize unnecessary work (see _agent.py:82-83, 188-189, 232-233):
+
+```python
+# Good: Specific filtering
+agent = TaskAgent(
+    api_key="avk_...",
+    project="proj_abc123",
+    task_types=["quality_review", "compliance_check"]
+)
+
+# Bad: No filtering (processes everything)
+agent = TaskAgent(api_key="avk_...")
+```
+
+### Efficient Handler Logic
+
+```python
+@agent.on("result.submitted")
+def handle(context):
+    # Quick validation first
+    if not context.result_data:
+        context.reject("No data")
+        return  # Exit early
+    
+    # Expensive operations only if needed
+    if requires_ml_validation(context):
+        result = run_ml_model(context.result_data)
+        if result.confidence > 0.95:
+            context.approve()
+        else:
+            context.flag(f"Low confidence: {result.confidence}")
+    else:
+        context.approve()
+```
+
+## Logging
+
+### Configure Appropriate Log Levels
+
+```python
+import logging
+from avala_agents import TaskAgent
+
+# Production: INFO or WARNING
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+# Development: DEBUG for detailed output
+if os.environ.get("DEBUG"):
+    logging.basicConfig(level=logging.DEBUG)
+
+agent = TaskAgent(api_key="avk_...")
+```
+
+### Add Custom Logging
+
+```python
+import logging
+from avala_agents import TaskAgent
+
+logger = logging.getLogger(__name__)
+agent = TaskAgent(api_key="avk_...")
+
+@agent.on("result.submitted")
+def handle(context):
+    logger.info(
+        "Processing result %s for task %s",
+        context.result_uid,
+        context.task_uid
+    )
+    
+    try:
+        # Your logic
+        context.approve()
+        logger.info("Result approved: %s", context.result_uid)
+    except Exception as e:
+        logger.error(
+            "Failed to process result %s: %s",
+            context.result_uid,
+            e,
+            exc_info=True
+        )
+        raise
+```
+
+## Deployment Patterns
+
+### Systemd Service (Linux)
+
+```ini
+# /etc/systemd/system/avala-agent.service
+[Unit]
+Description=Avala Quality Agent
+After=network.target
+
+[Service]
+Type=simple
+User=avala
+WorkingDirectory=/opt/avala-agent
+EnvironmentFile=/etc/avala/agent.env
+ExecStart=/usr/bin/python3 /opt/avala-agent/agent.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+# /etc/avala/agent.env
+AVALA_API_KEY=avk_...
+AVALA_BASE_URL=https://api.avala.ai/api/v1
+```
+
+### Docker Compose
+
+```yaml
+version: '3.8'
+
+services:
+  avala-agent:
+    build: .
+    environment:
+      - AVALA_API_KEY=${AVALA_API_KEY}
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+```
+
+### Kubernetes Deployment
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: avala-agent
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: avala-agent
+  template:
+    metadata:
+      labels:
+        app: avala-agent
+    spec:
+      containers:
+      - name: agent
+        image: myorg/avala-agent:latest
+        env:
+        - name: AVALA_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: avala-credentials
+              key: api-key
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"  # Customize for your agent
+          initialDelaySeconds: 30
+          periodSeconds: 60
+```
+
+## Testing
+
+### Unit Testing Handlers
+
+```python
+import unittest
+from unittest.mock import Mock
+from avala_agents import TaskAgent
+
+class TestHandlers(unittest.TestCase):
+    def setUp(self):
+        self.agent = TaskAgent(api_key="test_key")
+    
+    def test_approve_valid_result(self):
+        @self.agent.on("result.submitted")
+        def handle(context):
+            if len(context.result_data) > 0:
+                context.approve()
+        
+        # Create mock context
+        mock_context = Mock()
+        mock_context.result_data = [{"annotation": "valid"}]
+        
+        # Call handler
+        handler = self.agent._handlers["result.submitted"]
+        handler(mock_context)
+        
+        # Verify approve was called
+        mock_context.approve.assert_called_once()
+    
+    def tearDown(self):
+        self.agent.close()
+```
+
+### Integration Testing with run_once()
+
+```python
+import os
+from avala_agents import TaskAgent
+
+# Use test API key and base URL
+os.environ["AVALA_API_KEY"] = "test_avk_..."
+os.environ["AVALA_BASE_URL"] = "https://test.avala.ai/api/v1"
+
+agent = TaskAgent(project="test_project")
+
+@agent.on("result.submitted")
+def handle(context):
+    context.approve()
+
+# Process once for testing
+count = agent.run_once()
+print(f"Test processed {count} executions")
+assert count >= 0, "Should process without errors"
+
+agent.close()
+```
+
+## Monitoring and Observability
+
+### Health Checks
+
+```python
+import threading
+import time
+from avala_agents import TaskAgent
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+last_poll_time = time.time()
+agent_healthy = True
+
+@app.route("/health")
+def health():
+    if time.time() - last_poll_time > 60:
+        return jsonify({"status": "unhealthy", "reason": "no recent polls"}), 503
+    if not agent_healthy:
+        return jsonify({"status": "unhealthy", "reason": "agent error"}), 503
+    return jsonify({"status": "healthy"}), 200
+
+def run_agent():
+    global last_poll_time, agent_healthy
+    agent = TaskAgent(api_key="avk_...")
+    
+    try:
+        while True:
+            agent.run_once()
+            last_poll_time = time.time()
+            time.sleep(5.0)
+    except Exception as e:
+        agent_healthy = False
+        raise
+    finally:
+        agent.close()
+
+# Run agent in background thread
+agent_thread = threading.Thread(target=run_agent, daemon=True)
+agent_thread.start()
+
+# Health check server
+app.run(host="0.0.0.0", port=8080)
+```
+
+### Metrics Collection
+
+```python
+import logging
+import time
+from avala_agents import TaskAgent
+from prometheus_client import Counter, Histogram, start_http_server
+
+# Define metrics
+executions_total = Counter('avala_executions_total', 'Total executions processed', ['event_type', 'action'])
+execution_duration = Histogram('avala_execution_duration_seconds', 'Execution processing time')
+
+logger = logging.getLogger(__name__)
+agent = TaskAgent(api_key="avk_...")
+
+@agent.on("result.submitted")
+def handle(context):
+    start = time.time()
+    
+    try:
+        # Your logic
+        if context.result_data:
+            context.approve()
+            executions_total.labels(event_type="result.submitted", action="approve").inc()
+        else:
+            context.reject("No data")
+            executions_total.labels(event_type="result.submitted", action="reject").inc()
+    finally:
+        execution_duration.observe(time.time() - start)
+
+# Start Prometheus metrics server
+start_http_server(9090)
+
+# Run agent
+agent.run()
+```
+
+## Summary Checklist
+
+<CardGroup cols={2}>
+  <Card title="Security" icon="lock">
+    - Use environment variables for API keys
+    - Never commit secrets to version control
+    - Always use HTTPS
+    - Implement proper access controls
+  </Card>
+  
+  <Card title="Error Handling" icon="triangle-exclamation">
+    - Handle exceptions in event handlers
+    - Use specific exception types
+    - Log errors with context
+    - Implement retry logic where appropriate
+  </Card>
+  
+  <Card title="Resource Management" icon="recycle">
+    - Always call `close()` or use context managers
+    - Reuse agents in serverless environments
+    - Configure appropriate timeouts
+    - Monitor resource usage
+  </Card>
+  
+  <Card title="Performance" icon="gauge-high">
+    - Tune poll intervals for your use case
+    - Use project/task_type filtering
+    - Optimize handler logic
+    - Implement health checks and metrics
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Review all configuration options
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/guides/error-handling">
+    Deep dive into exception handling
+  </Card>
+  <Card title="Polling Modes" icon="arrows-rotate" href="/guides/polling-modes">
+    Choose the right polling mode
+  </Card>
+</CardGroup>

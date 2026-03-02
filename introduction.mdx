@@ -1,0 +1,136 @@
+---
+title: Introduction
+description: Build custom annotation workflow agents for the Avala platform
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="Hero Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="Hero Dark"
+/>
+
+## Welcome to Avala Agents SDK
+
+The Avala Agents SDK is a Python framework for building custom annotation workflow agents that integrate seamlessly with the [Avala](https://avala.ai) platform. Create intelligent quality control checks, automated validation logic, and custom workflow triggers using a simple, event-driven architecture.
+
+## What can you build?
+
+With the Avala Agents SDK, you can:
+
+- **Automate quality control** — Validate annotation results in real-time and reject low-quality submissions
+- **Enforce business rules** — Apply custom validation logic based on your domain requirements
+- **Trigger workflows** — React to task completions, dataset changes, and export events
+- **Flag for review** — Automatically flag edge cases and low-confidence annotations for human review
+
+## Core concepts
+
+<CardGroup cols={2}>
+  <Card title="Events" icon="bolt" href="/concepts/events">
+    React to annotation submissions, task completions, and more
+  </Card>
+  <Card title="Context objects" icon="box" href="/concepts/contexts">
+    Learn about ResultContext, TaskContext, and EventContext
+  </Card>
+  <Card title="Actions" icon="check" href="/concepts/actions">
+    Approve, reject, flag, or skip executions with a simple API
+  </Card>
+  <Card title="Polling" icon="arrows-rotate" href="/guides/polling-modes">
+    Understand how agents poll for and process pending executions
+  </Card>
+</CardGroup>
+
+## Quick example
+
+Here's a simple quality control agent that validates annotation results:
+
+```python
+from avala_agents import TaskAgent
+
+agent = TaskAgent(
+    api_key="avk_...",
+    name="quality-checker",
+    project="proj_uid",  # optional: scope to a single project
+)
+
+@agent.on("result.submitted")
+def check_quality(context):
+    annotations = context.result_data
+
+    if len(annotations) == 0:
+        context.reject("No annotations found")
+    elif context.result_metadata.get("confidence", 1.0) < 0.5:
+        context.flag("Low confidence — needs manual review")
+    else:
+        context.approve()
+
+agent.run()  # blocks; polls for pending executions
+```
+
+## Features
+
+<CardGroup cols={2}>
+  <Card title="Event-driven architecture" icon="diagram-project">
+    Register handlers for specific events using simple decorators
+  </Card>
+  <Card title="Type-safe contexts" icon="shield-check">
+    Access structured data through typed context objects
+  </Card>
+  <Card title="Automatic polling" icon="clock">
+    Built-in polling loop handles execution fetching and processing
+  </Card>
+  <Card title="Error handling" icon="triangle-exclamation">
+    Comprehensive exception hierarchy for graceful error handling
+  </Card>
+  <Card title="Project scoping" icon="folder">
+    Filter executions by project or task type
+  </Card>
+  <Card title="Flexible deployment" icon="server">
+    Run continuously or process batches on-demand
+  </Card>
+</CardGroup>
+
+## Get started in minutes
+
+<CardGroup cols={3}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install the SDK with pip and set up your environment
+  </Card>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Build your first agent in under 5 minutes
+  </Card>
+  <Card title="API reference" icon="book" href="/api/task-agent">
+    Explore the complete SDK documentation
+  </Card>
+</CardGroup>
+
+## Requirements
+
+- Python 3.9 or higher
+- An Avala API key (obtain from your Avala dashboard)
+- Basic familiarity with Python decorators and async/await patterns
+
+<Note>
+  The Avala Agents SDK is designed to be simple and intuitive. If you're familiar with event-driven programming in Python, you'll feel right at home.
+</Note>
+
+## Next steps
+
+<Steps>
+  <Step title="Install the SDK">
+    Follow the [installation guide](/installation) to set up the SDK in your environment.
+  </Step>
+  <Step title="Build your first agent">
+    Complete the [quick start tutorial](/quickstart) to create a working quality control agent.
+  </Step>
+  <Step title="Explore events">
+    Learn about all [supported events](/concepts/events) and when they're triggered.
+  </Step>
+  <Step title="Deploy to production">
+    Read the [best practices guide](/guides/best-practices) to run agents in production environments.
+  </Step>
+</Steps>

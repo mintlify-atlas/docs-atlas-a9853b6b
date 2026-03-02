@@ -1,0 +1,358 @@
+---
+title: Actions
+description: Learn about the action methods you can call on context objects
+---
+
+Every context object provides four action methods that submit decisions back to the Avala platform. These methods control how the workflow progresses after your handler executes.
+
+## Overview
+
+All three context types ([`ResultContext`](/concepts/contexts#resultcontext), [`TaskContext`](/concepts/contexts#taskcontext), [`EventContext`](/concepts/contexts#eventcontext)) provide the same four action methods:
+
+- `approve()` - Approve and advance the workflow
+- `reject()` - Reject and return for correction
+- `flag()` - Mark for manual review
+- `skip()` - Acknowledge without workflow action
+
+<Info>
+You must call exactly one action method per handler execution. Calling multiple actions or no action will leave the execution in an undefined state.
+</Info>
+
+## Action methods
+
+### approve()
+
+Approves the execution and advances it through the workflow.
+
+```python
+def approve(self, reason: str = "") -> None:
+    """Approve this execution and advance it through the workflow."""
+```
+
+**Parameters:**
+- `reason` (str, optional): Human-readable explanation for the approval. Defaults to empty string.
+
+**Example:**
+
+```python
+@agent.on("result.submitted")
+def validate(context):
+    if all_checks_pass(context.result_data):
+        context.approve("All validation checks passed")
+```
+
+**Use cases:**
+- Quality validation passed
+- Automated approval workflows
+- Compliance checks succeeded
+- Data meets requirements
+
+### reject()
+
+Rejects the execution and returns it for correction. For result events, this sends the result back to the annotator.
+
+```python
+def reject(self, reason: str = "") -> None:
+    """Reject this execution, returning it for correction.
+    
+    Args:
+        reason: Human-readable explanation shown to the annotator.
+    """
+```
+
+**Parameters:**
+- `reason` (str, optional): Human-readable explanation shown to the user who needs to make corrections.
+
+**Example:**
+
+```python
+@agent.on("result.submitted")
+def validate(context):
+    if len(context.result_data) < 3:
+        context.reject("Need at least 3 annotations per task")
+        return
+    
+    if missing_required_labels(context.result_data):
+        context.reject("Missing required label categories")
+        return
+    
+    context.approve()
+```
+
+**Use cases:**
+- Validation failed
+- Missing required data
+- Quality below threshold
+- Policy violations
+
+<Warning>
+Always provide a clear, actionable `reason` when rejecting. This helps annotators understand what needs to be corrected.
+</Warning>
+
+### flag()
+
+Flags the execution for manual human review without immediately approving or rejecting it.
+
+```python
+def flag(self, reason: str = "") -> None:
+    """Flag this execution for manual human review.
+    
+    Args:
+        reason: Human-readable explanation for the reviewer.
+    """
+```
+
+**Parameters:**
+- `reason` (str, optional): Human-readable explanation to help the reviewer understand why it was flagged.
+
+**Example:**
+
+```python
+@agent.on("result.submitted")
+def quality_check(context):
+    confidence = context.result_metadata.get("confidence", 1.0)
+    duration = context.result_metadata.get("duration_seconds", float('inf'))
+    
+    if confidence < 0.7:
+        context.flag("Low confidence score: {}".format(confidence))
+        return
+    
+    if duration < 5:
+        context.flag("Suspiciously fast annotation: {}s".format(duration))
+        return
+    
+    context.approve()
+```
+
+**Use cases:**
+- Borderline quality cases
+- Unusual patterns detected
+- Edge cases requiring human judgment
+- Uncertain automated decisions
+
+### skip()
+
+Acknowledges the execution without taking any workflow action. The event is marked as processed, but no approval, rejection, or flag is recorded.
+
+```python
+def skip(self) -> None:
+    """Acknowledge the execution without taking any workflow action."""
+```
+
+**Parameters:** None
+
+**Example:**
+
+```python
+@agent.on("task.completed")
+def log_completion(context):
+    # Just log the event, don't affect workflow
+    print(f"Task {context.task_uid} completed: {context.task_name}")
+    # Send to analytics system
+    analytics.track("task_completed", {
+        "task_uid": context.task_uid,
+        "task_type": context.task_type
+    })
+    context.skip()
+
+@agent.on("dataset.created")
+def notify_team(context):
+    # Send notification without affecting workflow
+    send_slack_message(f"New dataset created: {context.resource_uid}")
+    context.skip()
+```
+
+**Use cases:**
+- Logging and analytics
+- Notifications
+- Read-only event handlers
+- Side effects without workflow impact
+
+## Action submission
+
+When you call an action method, the SDK submits it to the Avala API:
+
+```python
+# From _agent.py:_submit_action()
+def _submit_action(self, execution_uid: str, action: str, reason: str) -> None:
+    """POST an action decision to the server."""
+    payload = {
+        "execution": execution_uid,
+        "action": action,
+    }
+    if reason:
+        payload["reason"] = reason
+    
+    response = self._http.post("agent-actions/", json=payload)
+    # Error handling...
+```
+
+The valid actions are defined in `avala_agents._types`:
+
+```python
+VALID_ACTIONS = {"approve", "reject", "flag", "skip"}
+```
+
+## Error handling
+
+Action submission can raise exceptions:
+
+- `AgentActionError`: API returned non-2xx status code
+- `AgentTimeoutError`: Request timed out (default 30 seconds)
+
+```python
+from avala_agents import TaskAgent
+from avala_agents._exceptions import AgentActionError, AgentTimeoutError
+
+@agent.on("result.submitted")
+def safe_handler(context):
+    try:
+        # Validation logic
+        if is_valid(context.result_data):
+            context.approve()
+        else:
+            context.reject("Validation failed")
+    except AgentActionError as e:
+        # Action submission failed
+        print(f"Failed to submit action: {e}")
+        # Agent will retry on next poll
+    except AgentTimeoutError as e:
+        # Request timed out
+        print(f"Action timed out: {e}")
+```
+
+<Warning>
+If an action submission fails, the execution remains in "pending" state and will be retried on the next poll cycle.
+</Warning>
+
+## Best practices
+
+### Always provide reasons
+
+Provide clear, actionable reasons for rejections and flags:
+
+```python
+# Good
+context.reject("Missing required 'category' field in annotation 1")
+context.flag("Confidence score 0.68 below threshold of 0.70")
+
+# Less helpful
+context.reject("Invalid")
+context.flag("Review needed")
+```
+
+### Call exactly one action
+
+Each handler should call exactly one action method:
+
+```python
+# Good
+@agent.on("result.submitted")
+def handler(context):
+    if not valid:
+        context.reject("Reason")
+        return  # Exit after action
+    context.approve()
+
+# Bad - multiple actions
+@agent.on("result.submitted")
+def bad_handler(context):
+    context.approve()
+    context.reject("Also reject?")  # Don't do this!
+```
+
+### Use early returns
+
+Use early returns after actions to avoid conditional complexity:
+
+```python
+@agent.on("result.submitted")
+def validate(context):
+    # Check 1
+    if not context.result_data:
+        context.reject("No data provided")
+        return
+    
+    # Check 2
+    if len(context.result_data) < 3:
+        context.reject("Need at least 3 annotations")
+        return
+    
+    # Check 3
+    if suspicious_pattern(context):
+        context.flag("Unusual annotation pattern")
+        return
+    
+    # All checks passed
+    context.approve()
+```
+
+### Use skip for read-only handlers
+
+If your handler only observes events without affecting workflow, use `skip()`:
+
+```python
+@agent.on("result.accepted")
+def log_acceptance(context):
+    # Log to database
+    db.insert("result_log", {
+        "result_uid": context.result_uid,
+        "accepted_at": datetime.now()
+    })
+    # Don't affect workflow
+    context.skip()
+```
+
+## Complete example
+
+```python
+from avala_agents import TaskAgent, ResultContext
+
+agent = TaskAgent(api_key="avk_...", name="quality-agent")
+
+@agent.on("result.submitted")
+def quality_review(context: ResultContext) -> None:
+    """Multi-stage quality validation with different actions."""
+    
+    # Stage 1: Basic validation
+    if not context.result_data:
+        context.reject("No annotations provided")
+        return
+    
+    if len(context.result_data) < 3:
+        context.reject("Need at least 3 annotations per task")
+        return
+    
+    # Stage 2: Quality checks
+    confidence = context.result_metadata.get("confidence", 1.0)
+    if confidence < 0.5:
+        context.reject("Confidence too low: {}".format(confidence))
+        return
+    
+    if confidence < 0.7:
+        context.flag("Borderline confidence: {} - needs review".format(confidence))
+        return
+    
+    # Stage 3: Pattern detection
+    duration = context.result_metadata.get("duration_seconds", float('inf'))
+    if duration < 5:
+        context.flag("Suspiciously fast: {}s".format(duration))
+        return
+    
+    # All checks passed
+    context.approve("Quality validation passed")
+
+if __name__ == "__main__":
+    agent.run()
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Contexts" icon="cube" href="/concepts/contexts">
+    Learn more about context objects
+  </Card>
+  <Card title="Events" icon="bolt" href="/concepts/events">
+    Explore all supported event types
+  </Card>
+</CardGroup>

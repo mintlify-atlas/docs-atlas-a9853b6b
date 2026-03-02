@@ -1,0 +1,182 @@
+---
+title: Configuration
+description: Learn how to configure your TaskAgent with initialization parameters, environment variables, and filtering options
+---
+
+## Overview
+
+The `TaskAgent` class provides flexible configuration options to control how your agent connects to Avala, which events it processes, and how it polls for work.
+
+## Initialization Parameters
+
+### Required Parameters
+
+#### API Key
+
+Your Avala API key is required to authenticate with the platform. You can provide it in two ways:
+
+<CodeGroup>
+```python Direct Parameter
+from avala_agents import TaskAgent
+
+agent = TaskAgent(
+    api_key="avk_...",
+    name="my-agent"
+)
+```
+
+```python Environment Variable
+import os
+os.environ["AVALA_API_KEY"] = "avk_..."
+
+agent = TaskAgent(name="my-agent")
+```
+</CodeGroup>
+
+<Note>
+If no API key is provided via parameter or environment variable, a `ValueError` will be raised.
+</Note>
+
+See _agent.py:76-78 for the resolution logic.
+
+### Optional Parameters
+
+#### Agent Name
+
+```python
+agent = TaskAgent(
+    api_key="avk_...",
+    name="quality-checker"  # Default: "default-agent"
+)
+```
+
+The `name` parameter identifies your agent in the Avala dashboard. Use descriptive names to distinguish between multiple agents.
+
+#### Base URL
+
+Override the API endpoint for testing or self-hosted deployments:
+
+<CodeGroup>
+```python Direct Parameter
+agent = TaskAgent(
+    api_key="avk_...",
+    base_url="https://custom.avala.ai/api/v1"
+)
+```
+
+```python Environment Variable
+import os
+os.environ["AVALA_BASE_URL"] = "https://custom.avala.ai/api/v1"
+
+agent = TaskAgent(api_key="avk_...")
+```
+</CodeGroup>
+
+<Info>
+The default base URL is `https://api.avala.ai/api/v1` (see _agent.py:25).
+</Info>
+
+#### Poll Interval
+
+Control how frequently the agent checks for new work when the queue is empty:
+
+```python
+agent = TaskAgent(
+    api_key="avk_...",
+    poll_interval=10.0  # Default: 5.0 seconds
+)
+```
+
+<Warning>
+Setting a very low poll interval (< 1 second) may result in rate limiting.
+</Warning>
+
+## Filtering Options
+
+### Project Filtering
+
+Restrict your agent to process executions from a specific project:
+
+```python
+agent = TaskAgent(
+    api_key="avk_...",
+    project="proj_abc123"  # Project UID
+)
+```
+
+When `project` is set, only executions belonging to that project will be returned by the API (see _agent.py:188-189).
+
+### Task Type Filtering
+
+Limit your agent to specific task types:
+
+```python
+agent = TaskAgent(
+    api_key="avk_...",
+    task_types=["image_classification", "object_detection"]
+)
+```
+
+This is useful when you have specialized agents for different annotation workflows. The task types are sent during registration and used as query parameters when fetching executions (see _agent.py:232-233).
+
+### Combined Filtering
+
+```python
+agent = TaskAgent(
+    api_key="avk_...",
+    name="medical-qa-agent",
+    project="proj_medical",
+    task_types=["medical_image_review", "quality_check"],
+    poll_interval=3.0
+)
+```
+
+## Environment Variables Reference
+
+| Variable | Description | Default |
+|----------|-------------|----------|
+| `AVALA_API_KEY` | Avala API key (fallback) | None (required) |
+| `AVALA_BASE_URL` | API base URL (fallback) | `https://api.avala.ai/api/v1` |
+
+<Tip>
+Environment variables are useful for deploying agents across different environments (development, staging, production) without code changes.
+</Tip>
+
+## Complete Example
+
+```python
+import os
+from avala_agents import TaskAgent
+
+# Configure via environment (recommended for production)
+os.environ["AVALA_API_KEY"] = "avk_..."
+os.environ["AVALA_BASE_URL"] = "https://api.avala.ai/api/v1"
+
+# Create a specialized agent
+agent = TaskAgent(
+    name="quality-assurance-bot",
+    project="proj_production",
+    task_types=["result_review", "quality_check"],
+    poll_interval=5.0
+)
+
+@agent.on("result.submitted")
+def review_result(context):
+    if len(context.result_data) < 3:
+        context.reject("Insufficient annotations")
+    else:
+        context.approve()
+
+agent.run()
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/guides/error-handling">
+    Learn how to handle exceptions and timeouts
+  </Card>
+  <Card title="Polling Modes" icon="arrows-rotate" href="/guides/polling-modes">
+    Understand blocking vs non-blocking execution
+  </Card>
+</CardGroup>

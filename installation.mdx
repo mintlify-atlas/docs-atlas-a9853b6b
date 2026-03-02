@@ -1,0 +1,226 @@
+---
+title: Installation
+description: Install the Avala Agents SDK and set up your development environment
+---
+
+## System requirements
+
+Before installing the Avala Agents SDK, ensure your system meets these requirements:
+
+- **Python 3.9 or higher** — The SDK requires Python 3.9+
+- **pip** — Python package installer (usually included with Python)
+- **Avala API key** — Obtain from your [Avala dashboard](https://avala.ai)
+
+<Tip>
+  Check your Python version by running `python --version` or `python3 --version` in your terminal.
+</Tip>
+
+## Install with pip
+
+Install the Avala Agents SDK using pip:
+
+```bash
+pip install avala-agents
+```
+
+For Python environments where `pip` points to Python 2.x, use `pip3`:
+
+```bash
+pip3 install avala-agents
+```
+
+<Note>
+  The SDK has minimal dependencies. It only requires `httpx>=0.24,<1` for HTTP communication with the Avala API.
+</Note>
+
+## Virtual environment (recommended)
+
+It's recommended to install the SDK in a virtual environment to avoid dependency conflicts:
+
+<CodeGroup>
+
+```bash venv
+# Create a virtual environment
+python -m venv venv
+
+# Activate it (macOS/Linux)
+source venv/bin/activate
+
+# Activate it (Windows)
+venv\Scripts\activate
+
+# Install the SDK
+pip install avala-agents
+```
+
+```bash conda
+# Create a conda environment
+conda create -n avala python=3.9
+
+# Activate it
+conda activate avala
+
+# Install the SDK
+pip install avala-agents
+```
+
+```bash poetry
+# Initialize a Poetry project
+poetry init
+
+# Add the SDK
+poetry add avala-agents
+
+# Activate the environment
+poetry shell
+```
+
+</CodeGroup>
+
+## Get your API key
+
+You'll need an Avala API key to authenticate your agents. API keys start with `avk_` and can be obtained from your Avala dashboard.
+
+<Steps>
+  <Step title="Log in to Avala">
+    Navigate to [avala.ai](https://avala.ai) and log in to your account.
+  </Step>
+  <Step title="Access API settings">
+    Go to **Settings** > **API Keys** in the dashboard.
+  </Step>
+  <Step title="Generate a key">
+    Click **Create API Key** and give it a descriptive name (e.g., "Development Agent").
+  </Step>
+  <Step title="Copy and secure">
+    Copy the key immediately — it won't be shown again. Store it securely (e.g., in a password manager).
+  </Step>
+</Steps>
+
+## Set up environment variables
+
+For security and convenience, store your API key in an environment variable:
+
+<CodeGroup>
+
+```bash macOS/Linux
+# Add to ~/.bashrc or ~/.zshrc
+export AVALA_API_KEY="avk_..."
+
+# Reload your shell configuration
+source ~/.bashrc  # or source ~/.zshrc
+```
+
+```bash Windows (PowerShell)
+# Set for current session
+$env:AVALA_API_KEY="avk_..."
+
+# Set permanently
+[System.Environment]::SetEnvironmentVariable('AVALA_API_KEY', 'avk_...', 'User')
+```
+
+```bash .env file
+# Create a .env file in your project root
+AVALA_API_KEY=avk_...
+
+# Load with python-dotenv
+pip install python-dotenv
+```
+
+</CodeGroup>
+
+<Warning>
+  Never commit API keys to version control. Add `.env` to your `.gitignore` file.
+</Warning>
+
+If using a `.env` file, load it in your Python code:
+
+```python
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+# The SDK will automatically read AVALA_API_KEY from environment
+from avala_agents import TaskAgent
+
+agent = TaskAgent(name="my-agent")
+```
+
+## Verify installation
+
+Confirm the SDK is installed correctly:
+
+```bash
+python -c "import avala_agents; print(avala_agents.__version__)"
+```
+
+You should see the version number (e.g., `0.1.0`).
+
+## Development dependencies (optional)
+
+If you're contributing to the SDK or running tests, install development dependencies:
+
+```bash
+pip install avala-agents[dev]
+```
+
+This includes:
+- `pytest>=7` — Testing framework
+- `respx>=0.20` — HTTP mocking for tests
+- `mypy>=1` — Static type checker
+- `ruff>=0.1` — Fast Python linter
+
+## Configuration options
+
+The SDK can be configured via environment variables or constructor parameters:
+
+| Parameter | Environment variable | Default | Description |
+|-----------|---------------------|---------|-------------|
+| `api_key` | `AVALA_API_KEY` | *(required)* | Your Avala API key |
+| `base_url` | `AVALA_BASE_URL` | `https://api.avala.ai/api/v1` | API endpoint URL |
+| `name` | — | `"default-agent"` | Agent identifier |
+| `project` | — | `None` | Project UID to scope to |
+| `task_types` | — | `None` | Task types to filter |
+| `poll_interval` | — | `5.0` | Seconds between polls |
+
+<Tip>
+  For development against a local or staging Avala instance, set `AVALA_BASE_URL` to your custom endpoint.
+</Tip>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="ImportError: No module named 'avala_agents'">
+    Ensure you've activated your virtual environment and installed the package:
+    ```bash
+    pip install avala-agents
+    ```
+  </Accordion>
+  
+  <Accordion title="ValueError: No API key provided">
+    The SDK requires an API key. Either:
+    - Pass `api_key="avk_..."` to the `TaskAgent` constructor, or
+    - Set the `AVALA_API_KEY` environment variable
+  </Accordion>
+  
+  <Accordion title="Python version errors">
+    The SDK requires Python 3.9+. Check your version:
+    ```bash
+    python --version
+    ```
+    If needed, install a newer Python version from [python.org](https://www.python.org/downloads/).
+  </Accordion>
+  
+  <Accordion title="SSL certificate errors">
+    If you encounter SSL errors, update your certificates:
+    ```bash
+    pip install --upgrade certifi
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next steps
+
+<Card title="Quick start" icon="rocket" href="/quickstart">
+  Now that the SDK is installed, build your first agent in under 5 minutes.
+</Card>

@@ -1,0 +1,139 @@
+---
+title: AgentEvent
+description: Raw event data structure from the executions API
+---
+
+## Overview
+
+The `AgentEvent` dataclass represents the raw event data received from the Avala agent executions API. This is an internal structure used by the SDK to construct the appropriate context objects (`ResultContext`, `TaskContext`, or `EventContext`) that are passed to your event handlers.
+
+<Note>
+You typically won't interact with `AgentEvent` directly in your agent code. The SDK automatically converts `AgentEvent` instances into the appropriate context objects based on the event type.
+</Note>
+
+## Attributes
+
+<ResponseField name="execution_uid" type="str">
+  Unique identifier for the agent execution. This ID is used to submit actions back to the platform.
+</ResponseField>
+
+<ResponseField name="event_type" type="str">
+  The event type identifier (e.g., `"result.submitted"`, `"task.completed"`, `"dataset.created"`). See [Event Types](/api/event-types) for the complete list.
+</ResponseField>
+
+<ResponseField name="payload" type="dict[str, Any]">
+  Raw event payload containing all event-specific data. The structure of this dictionary varies depending on the `event_type`:
+  
+  - **Result events**: Contains `task_uid`, `result_uid`, `result_data`, `result_metadata`, etc.
+  - **Task events**: Contains `task_uid`, `task_name`, `task_type`, `task_status`, etc.
+  - **Dataset events**: Contains `dataset_uid`, `dataset_name`, etc.
+  - **Export events**: Contains `export_uid`, `export_format`, `file_url`, etc.
+</ResponseField>
+
+## Internal Usage
+
+The SDK uses `AgentEvent` in the following flow:
+
+1. The `TaskAgent` polls the API for pending executions
+2. Each execution is converted to an `AgentEvent` instance
+3. The `_build_context()` method examines the `event_type` to determine which context class to use
+4. The appropriate context object is constructed from the `AgentEvent` payload
+5. The context object is passed to your registered handler
+
+```python
+# Internal SDK code (simplified)
+def _dispatch(self, execution: dict[str, Any]) -> None:
+    # Create AgentEvent from raw execution data
+    event = AgentEvent(
+        execution_uid=execution.get("uid", ""),
+        event_type=execution.get("event_type", ""),
+        payload=execution.get("event_payload", {}),
+    )
+    
+    # Build appropriate context object
+    context = self._build_context(event)
+    
+    # Call handler with context
+    handler = self._handlers.get(event.event_type)
+    handler(context)
+```
+
+## Event Type to Context Mapping
+
+The SDK maps event types to context classes as follows:
+
+| Event Type | Context Class | Description |
+|------------|---------------|-------------|
+| `result.submitted` | `ResultContext` | Result submission events |
+| `result.accepted` | `ResultContext` | Result acceptance events |
+| `result.rejected` | `ResultContext` | Result rejection events |
+| `task.completed` | `TaskContext` | Task completion events |
+| `dataset.created` | `EventContext` | Dataset creation events |
+| `dataset.updated` | `EventContext` | Dataset update events |
+| `dataset.deleted` | `EventContext` | Dataset deletion events |
+| `export.completed` | `EventContext` | Export completion events |
+| `export.failed` | `EventContext` | Export failure events |
+
+## Example Payload Structures
+
+### Result Event Payload
+
+```python
+{
+    "task_uid": "task_abc123",
+    "result_uid": "result_def456",
+    "result_data": [
+        {
+            "label": "cat",
+            "confidence": 0.95
+        }
+    ],
+    "result_metadata": {
+        "time_spent": 42.5,
+        "annotator_id": "user_123"
+    },
+    "task_name": "Image Classification Task",
+    "task_type": "image_classification",
+    "project_uid": "proj_xyz789"
+}
+```
+
+### Task Event Payload
+
+```python
+{
+    "task_uid": "task_abc123",
+    "task_name": "Transcription Task",
+    "task_type": "transcription",
+    "task_status": "completed",
+    "project_uid": "proj_xyz789"
+}
+```
+
+### Dataset Event Payload
+
+```python
+{
+    "dataset_uid": "dataset_abc123",
+    "dataset_name": "Training Images - Batch 5",
+    "project_uid": "proj_xyz789"
+}
+```
+
+### Export Event Payload
+
+```python
+{
+    "export_uid": "export_abc123",
+    "export_format": "coco",
+    "file_url": "https://storage.avala.ai/exports/export_abc123.zip",
+    "project_uid": "proj_xyz789"
+}
+```
+
+## Related Types
+
+- [ResultContext](/api/result-context) - Context for result events
+- [TaskContext](/api/task-context) - Context for task events
+- [EventContext](/api/event-context) - Context for dataset and export events
+- [Event Types](/api/event-types) - Complete list of event type constants

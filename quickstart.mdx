@@ -1,80 +1,302 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick start
+description: Build your first Avala agent in under 5 minutes
 ---
 
-## Get started in three steps
+## Overview
 
-Get your documentation site running locally and make your first customization.
+This guide walks you through creating a simple quality control agent that validates annotation results in real-time. You'll learn the core concepts of the SDK and have a working agent by the end.
 
-### Step 1: Set up your local environment
+<Note>
+  **Before you begin:** Make sure you've [installed the SDK](/installation) and have your Avala API key ready.
+</Note>
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+## Create your first agent
+
+<Steps>
+  <Step title="Create a new Python file">
+    Create a file named `agent.py` in your project directory:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    ```bash
+    touch agent.py
+    ```
+  </Step>
+  
+  <Step title="Import and initialize">
+    Import the `TaskAgent` class and create an agent instance:
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```python agent.py
+    from avala_agents import TaskAgent
 
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    agent = TaskAgent(
+        api_key="avk_...",  # or set AVALA_API_KEY environment variable
+        name="quality-checker",
+        project="proj_uid",  # optional: scope to a single project
+    )
+    ```
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    <Tip>
+      If you've set the `AVALA_API_KEY` environment variable, you can omit the `api_key` parameter:
+      ```python
+      agent = TaskAgent(name="quality-checker")
+      ```
+    </Tip>
+  </Step>
+  
+  <Step title="Register an event handler">
+    Use the `@agent.on()` decorator to register a handler for the `result.submitted` event:
+    
+    ```python agent.py
+    @agent.on("result.submitted")
+    def check_quality(context):
+        annotations = context.result_data
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+        if len(annotations) == 0:
+            context.reject("No annotations found")
+        elif context.result_metadata.get("confidence", 1.0) < 0.5:
+            context.flag("Low confidence — needs manual review")
+        else:
+            context.approve()
+    ```
+    
+    This handler:
+    - Rejects results with no annotations
+    - Flags results with confidence below 0.5 for manual review
+    - Approves all other results
+  </Step>
+  
+  <Step title="Start the agent">
+    Call `agent.run()` to start the polling loop:
+    
+    ```python agent.py
+    agent.run()  # blocks; polls for pending executions
+    ```
+  </Step>
+</Steps>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+## Complete example
 
-### Step 3: Go live
+Here's the complete `agent.py` file:
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+```python agent.py
+from avala_agents import TaskAgent
+
+agent = TaskAgent(
+    api_key="avk_...",
+    name="quality-checker",
+    project="proj_uid",  # optional: scope to a single project
+)
+
+@agent.on("result.submitted")
+def check_quality(context):
+    annotations = context.result_data
+
+    if len(annotations) == 0:
+        context.reject("No annotations found")
+    elif context.result_metadata.get("confidence", 1.0) < 0.5:
+        context.flag("Low confidence — needs manual review")
+    else:
+        context.approve()
+
+agent.run()  # blocks; polls for pending executions
+```
+
+## Run your agent
+
+Execute the agent from your terminal:
+
+```bash
+python agent.py
+```
+
+You should see output indicating the agent has registered successfully:
+
+```
+INFO:avala_agents._agent:Agent 'quality-checker' registered (uid=agent_abc123).
+```
+
+The agent is now polling for pending executions. When a result is submitted in your Avala project, the handler will be triggered automatically.
+
+<Tip>
+  Press `Ctrl+C` to stop the agent gracefully.
+</Tip>
+
+## Understanding the code
+
+### Agent initialization
+
+```python
+agent = TaskAgent(
+    api_key="avk_...",
+    name="quality-checker",
+    project="proj_uid",
+)
+```
+
+- **`api_key`** — Your Avala API key (starts with `avk_`). Can be omitted if `AVALA_API_KEY` environment variable is set.
+- **`name`** — A logical identifier for your agent, shown in the Avala dashboard.
+- **`project`** — *(Optional)* Project UID to scope executions to. Omit to process all projects.
+
+### Event handler
+
+```python
+@agent.on("result.submitted")
+def check_quality(context):
+    # Your validation logic
+```
+
+The `@agent.on()` decorator registers a function to handle a specific event type. When the event occurs, the SDK calls your function with a context object.
+
+### Context object
+
+The `context` parameter provides access to event data:
+
+```python
+context.result_data         # List of annotation objects
+context.result_metadata     # Metadata dict (e.g., confidence scores)
+context.task_uid            # UID of the associated task
+context.result_uid          # UID of the result
+context.project_uid         # UID of the project
+```
+
+### Actions
+
+Context objects expose four action methods:
+
+| Method | Description |
+|--------|-------------|
+| `context.approve(reason="")` | Accept the result and advance it through the workflow |
+| `context.reject(reason="")` | Reject the result (it returns to the annotator) |
+| `context.flag(reason="")` | Flag for manual review without blocking |
+| `context.skip()` | Acknowledge without taking action |
+
+<Warning>
+  Each handler must call exactly one action method. Calling multiple actions or none will result in undefined behavior.
+</Warning>
+
+## Handle multiple events
+
+You can register handlers for multiple event types:
+
+```python
+from avala_agents import TaskAgent
+
+agent = TaskAgent(api_key="avk_...", name="multi-handler")
+
+@agent.on("result.submitted")
+def on_submit(context):
+    if len(context.result_data) == 0:
+        context.reject("No annotations found")
+    else:
+        context.approve()
+
+@agent.on("result.rejected")
+def on_reject(context):
+    print(f"Result {context.result_uid} was rejected")
+    context.skip()
+
+@agent.on("task.completed")
+def on_complete(context):
+    print(f"Task {context.task_uid} completed with status {context.task_status}")
+    context.approve()
+
+agent.run()
+```
+
+## Process a single batch
+
+For non-blocking execution (e.g., in a cron job), use `run_once()` instead of `run()`:
+
+```python
+from avala_agents import TaskAgent
+
+agent = TaskAgent(api_key="avk_...", name="batch-processor")
+
+@agent.on("result.submitted")
+def check(context):
+    context.approve()
+
+count = agent.run_once()
+print(f"Processed {count} execution(s)")
+```
+
+This processes all pending executions once and exits immediately.
+
+## Error handling
+
+Handle SDK exceptions gracefully:
+
+```python
+from avala_agents import TaskAgent, AgentActionError, AgentRegistrationError
+
+agent = TaskAgent(api_key="avk_...", name="error-handler")
+
+@agent.on("result.submitted")
+def check(context):
+    context.approve()
+
+try:
+    agent.run()
+except AgentRegistrationError as exc:
+    print(f"Could not register agent: {exc}")
+except AgentActionError as exc:
+    print(f"Failed to submit action: {exc}")
+except KeyboardInterrupt:
+    print("Agent stopped by user")
+```
+
+<Note>
+  The SDK provides a comprehensive exception hierarchy. See the [error handling guide](/guides/error-handling) for details.
+</Note>
+
+## Advanced configuration
+
+Customize polling behavior and filtering:
+
+```python
+agent = TaskAgent(
+    api_key="avk_...",
+    name="advanced-agent",
+    project="proj_abc",           # Scope to a single project
+    task_types=["image_seg", "ocr"],  # Filter by task types
+    poll_interval=10.0,            # Poll every 10 seconds (default: 5.0)
+    base_url="https://staging.avala.ai/api/v1",  # Custom API endpoint
+)
+```
+
+## Supported events
+
+The SDK supports the following event types:
+
+| Event | Context class | Description |
+|-------|---------------|-------------|
+| `result.submitted` | `ResultContext` | An annotator submitted a result |
+| `result.accepted` | `ResultContext` | A result was accepted by QC |
+| `result.rejected` | `ResultContext` | A result was rejected by QC |
+| `task.completed` | `TaskContext` | A task reached a terminal state |
+| `dataset.created` | `EventContext` | A dataset was created |
+| `dataset.updated` | `EventContext` | A dataset was updated |
+| `dataset.deleted` | `EventContext` | A dataset was deleted |
+| `export.completed` | `EventContext` | An export job completed |
+| `export.failed` | `EventContext` | An export job failed |
+
+<Tip>
+  See the [Events reference](/concepts/events) for detailed information on each event type and its context object.
+</Tip>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Events reference" icon="bolt" href="/concepts/events">
+    Learn about all supported events and when they're triggered
+  </Card>
+  <Card title="Context objects" icon="box" href="/concepts/contexts">
+    Explore the data available in each context type
+  </Card>
+  <Card title="Error handling" icon="triangle-exclamation" href="/guides/error-handling">
+    Handle exceptions and implement retry logic
+  </Card>
+  <Card title="Best practices" icon="server" href="/guides/best-practices">
+    Deploy your agent to production environments
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

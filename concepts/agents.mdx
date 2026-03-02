@@ -1,0 +1,201 @@
+---
+title: Agents
+description: Learn how to create and register TaskAgent instances to process annotation workflow events
+---
+
+The `TaskAgent` class is the main entry point for the Avala Agents SDK. It provides a polling-based architecture that listens for workflow events and executes your custom handlers.
+
+## Creating an agent
+
+Instantiate a `TaskAgent` with your API credentials and configuration:
+
+```python
+from avala_agents import TaskAgent
+
+agent = TaskAgent(
+    api_key="avk_...",
+    name="quality-checker",
+    project="proj_abc123",
+    task_types=["image-classification", "text-annotation"],
+    poll_interval=5.0
+)
+```
+
+### Constructor parameters
+
+<ParamField path="api_key" type="str | None">
+  Avala API key (starts with `avk_`). Falls back to the `AVALA_API_KEY` environment variable if not provided.
+</ParamField>
+
+<ParamField path="base_url" type="str | None">
+  Override the API base URL. Falls back to the `AVALA_BASE_URL` environment variable, then defaults to `https://api.avala.ai/api/v1`.
+</ParamField>
+
+<ParamField path="name" type="str" default="default-agent">
+  Logical name for this agent instance. Used to identify the agent in the Avala dashboard.
+</ParamField>
+
+<ParamField path="project" type="str | None">
+  Optional project UID. When set, only executions belonging to that project are returned.
+</ParamField>
+
+<ParamField path="task_types" type="list[str] | None">
+  Optional list of task type identifiers to filter on. Only executions matching these task types will be processed.
+</ParamField>
+
+<ParamField path="poll_interval" type="float" default="5.0">
+  Seconds between polling requests when the queue is empty.
+</ParamField>
+
+## Registering event handlers
+
+Use the `@agent.on()` decorator to register handlers for specific events:
+
+```python
+@agent.on("result.submitted")
+def check_quality(context):
+    if not context.result_data:
+        context.reject("No annotations found")
+    else:
+        context.approve()
+```
+
+### Supported events
+
+You can register handlers for any of the following event types:
+
+- `result.submitted` - A new annotation result was submitted
+- `result.accepted` - A result was accepted in the workflow
+- `result.rejected` - A result was rejected in the workflow
+- `task.completed` - A task reached completion status
+- `dataset.created` - A new dataset was created
+- `dataset.updated` - A dataset was modified
+- `dataset.deleted` - A dataset was deleted
+- `export.completed` - An export job finished successfully
+- `export.failed` - An export job failed
+
+<Info>
+You can register multiple handlers by using the decorator multiple times. Each event type can have one handler.
+</Info>
+
+### Method signature
+
+```python
+def on(event: str) -> Callable[[Callable[..., None]], Callable[..., None]]
+```
+
+**Parameters:**
+- `event` (str): One of the supported event identifiers
+
+**Returns:** The original handler function, unchanged
+
+**Raises:** `ValueError` if the event is not a recognized event identifier
+
+## Polling architecture
+
+The agent uses a polling-based architecture to fetch and process events:
+
+1. **Registration**: On startup, the agent registers itself with the Avala API, sending its name, supported events, and optional filters.
+2. **Polling loop**: The agent continuously polls for pending executions assigned to it.
+3. **Dispatch**: When executions are found, they're dispatched to the appropriate handler based on event type.
+4. **Action submission**: Handler actions (approve, reject, flag, skip) are submitted back to the API.
+
+### Running the agent
+
+Start the blocking polling loop:
+
+```python
+agent.run()
+```
+
+This method:
+- Registers the agent with the server (if not already registered)
+- Polls indefinitely for pending executions
+- Can be interrupted with `Ctrl-C`
+
+### One-time execution
+
+Process pending executions once without entering a loop:
+
+```python
+count = agent.run_once()
+print(f"Processed {count} executions")
+```
+
+This is useful for testing or scheduled execution (e.g., via cron).
+
+## Context manager support
+
+The agent supports the context manager protocol for automatic cleanup:
+
+```python
+with TaskAgent(api_key="avk_...", name="my-agent") as agent:
+    @agent.on("result.submitted")
+    def handler(context):
+        context.approve()
+    
+    agent.run()
+# HTTP connection pool is automatically closed
+```
+
+## Complete example
+
+```python
+from avala_agents import TaskAgent
+
+agent = TaskAgent(
+    api_key="avk_...",
+    name="quality-checker",
+    project="proj_abc123",
+    poll_interval=5.0
+)
+
+@agent.on("result.submitted")
+def validate_submission(context):
+    """Check that results meet quality criteria."""
+    if not context.result_data:
+        context.reject("No annotations provided")
+        return
+    
+    # Check metadata requirements
+    if not context.result_metadata.get("confidence"):
+        context.flag("Missing confidence score")
+        return
+    
+    context.approve("Quality check passed")
+
+@agent.on("task.completed")
+def log_completion(context):
+    """Log task completion events."""
+    print(f"Task {context.task_uid} completed: {context.task_name}")
+    context.skip()
+
+if __name__ == "__main__":
+    agent.run()
+```
+
+## Error handling
+
+The agent raises specific exceptions for different error conditions:
+
+- `AgentRegistrationError`: Failed to register with the API
+- `AgentActionError`: Failed to submit an action
+- `AgentTimeoutError`: Request timed out (default 30 seconds)
+
+<Warning>
+If no handler is registered for an event type, the execution is automatically skipped with a warning logged.
+</Warning>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Events" icon="bolt" href="/concepts/events">
+    Learn about all supported event types
+  </Card>
+  <Card title="Contexts" icon="cube" href="/concepts/contexts">
+    Understand context objects passed to handlers
+  </Card>
+  <Card title="Actions" icon="check" href="/concepts/actions">
+    Explore actions you can take on events
+  </Card>
+</CardGroup>

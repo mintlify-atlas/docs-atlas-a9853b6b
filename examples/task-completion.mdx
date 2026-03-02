@@ -1,0 +1,377 @@
+---
+title: "Task Completion Handler"
+description: "Build an agent that processes task.completed events for workflow finalization"
+---
+
+This example shows how to build an agent that handles `task.completed` events, which fire when a task reaches a terminal state in your annotation workflow.
+
+## Overview
+
+A task completion handler can:
+- Trigger downstream processes when tasks finish
+- Validate final task states
+- Archive or export completed work
+- Update external systems
+
+## When Task Completion Events Fire
+
+The `task.completed` event is triggered when a task reaches any terminal state:
+- All required annotations are collected and approved
+- A task is manually marked as complete
+- A task is cancelled or closed
+
+## Complete Example
+
+```python
+from avala_agents import TaskAgent, TaskContext
+
+agent = TaskAgent(
+    api_key="avk_...",
+    name="task-completion-handler",
+)
+
+@agent.on("task.completed")
+def handle_completion(context: TaskContext):
+    """Process completed tasks and trigger downstream workflows."""
+    print(f"Task {context.task_uid} completed")
+    print(f"Task name: {context.task_name}")
+    print(f"Task type: {context.task_type}")
+    print(f"Final status: {context.task_status}")
+    print(f"Project: {context.project_uid}")
+    
+    # Acknowledge the completion
+    context.approve()
+
+agent.run()
+```
+
+## How It Works
+
+<Steps>
+  <Step title="Register the handler">
+    Use `@agent.on("task.completed")` to register a handler for task completion events.
+
+    ```python
+    @agent.on("task.completed")
+    def handle_completion(context: TaskContext):
+        # Your completion logic here
+        pass
+    ```
+  </Step>
+
+  <Step title="Access task information">
+    The `TaskContext` provides information about the completed task.
+
+    ```python
+    task_uid = context.task_uid
+    task_name = context.task_name
+    task_type = context.task_type
+    task_status = context.task_status
+    project_uid = context.project_uid
+    ```
+  </Step>
+
+  <Step title="Perform completion actions">
+    Execute your workflow logic - export data, notify systems, update databases, etc.
+
+    ```python
+    # Example: Log to external system
+    log_completion(context.task_uid, context.task_status)
+    
+    # Example: Trigger export
+    if context.task_type == "image-annotation":
+        trigger_export(context.task_uid)
+    ```
+  </Step>
+
+  <Step title="Acknowledge the event">
+    Call an action method to complete the execution.
+
+    ```python
+    context.approve()  # Standard completion
+    # or
+    context.skip()     # Acknowledge without workflow action
+    ```
+  </Step>
+</Steps>
+
+## TaskContext Properties
+
+The `TaskContext` object provides:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `task_uid` | `str` | Unique identifier for this task |
+| `task_name` | `str \| None` | Human-readable task name |
+| `task_type` | `str \| None` | Task type identifier |
+| `task_status` | `str \| None` | Terminal status of the task |
+| `project_uid` | `str \| None` | Project this task belongs to |
+| `event_type` | `str` | Always `"task.completed"` for this handler |
+| `execution_uid` | `str` | Unique identifier for this execution |
+
+## Advanced: Export Trigger
+
+Trigger data exports when specific task types complete:
+
+```python
+import httpx
+from avala_agents import TaskAgent, TaskContext
+
+agent = TaskAgent(
+    api_key="avk_...",
+    name="export-trigger",
+)
+
+def trigger_export(task_uid: str, api_key: str):
+    """Trigger an export for the completed task."""
+    response = httpx.post(
+        "https://api.avala.ai/api/v1/exports/",
+        headers={
+            "X-Avala-Api-Key": api_key,
+            "Content-Type": "application/json",
+        },
+        json={
+            "task": task_uid,
+            "format": "coco",
+        },
+    )
+    response.raise_for_status()
+    return response.json()
+
+@agent.on("task.completed")
+def on_completion(context: TaskContext):
+    """Export data for completed annotation tasks."""
+    # Only export for specific task types
+    if context.task_type in ["image-annotation", "object-detection"]:
+        try:
+            export_data = trigger_export(
+                context.task_uid,
+                api_key="avk_...",  # Use from environment in production
+            )
+            print(f"Export triggered: {export_data['uid']}")
+            context.approve(f"Export {export_data['uid']} created")
+        except Exception as e:
+            context.flag(f"Export failed: {str(e)}")
+    else:
+        # Skip non-annotation tasks
+        context.skip()
+
+agent.run()
+```
+
+## Integration with External Systems
+
+Notify external systems when tasks complete:
+
+```python
+import os
+import httpx
+from avala_agents import TaskAgent, TaskContext
+
+agent = TaskAgent(
+    api_key=os.environ["AVALA_API_KEY"],
+    name="webhook-notifier",
+)
+
+def send_webhook(webhook_url: str, payload: dict):
+    """Send completion notification to external system."""
+    response = httpx.post(
+        webhook_url,
+        json=payload,
+        timeout=10.0,
+    )
+    response.raise_for_status()
+
+@agent.on("task.completed")
+def notify_completion(context: TaskContext):
+    """Notify external system of task completion."""
+    webhook_url = os.environ.get("COMPLETION_WEBHOOK_URL")
+    
+    if not webhook_url:
+        context.skip()
+        return
+    
+    payload = {
+        "event": "task.completed",
+        "task_uid": context.task_uid,
+        "task_name": context.task_name,
+        "task_type": context.task_type,
+        "task_status": context.task_status,
+        "project_uid": context.project_uid,
+    }
+    
+    try:
+        send_webhook(webhook_url, payload)
+        context.approve("Webhook sent successfully")
+    except Exception as e:
+        context.flag(f"Webhook failed: {str(e)}")
+
+if __name__ == "__main__":
+    agent.run()
+```
+
+Run with webhook URL:
+
+```bash
+export AVALA_API_KEY=avk_...
+export COMPLETION_WEBHOOK_URL=https://example.com/webhooks/task-completed
+python task_completion.py
+```
+
+## Filtering by Task Type
+
+Process only specific task types:
+
+```python
+from avala_agents import TaskAgent
+
+agent = TaskAgent(
+    api_key="avk_...",
+    name="filtered-completion-handler",
+    task_types=["image-annotation", "object-detection"],
+)
+
+@agent.on("task.completed")
+def handle_completion(context):
+    """Only receives completions for specified task types."""
+    print(f"Processing {context.task_type} task: {context.task_uid}")
+    context.approve()
+
+agent.run()
+```
+
+<Tip>
+  Filtering at the agent level (using the `task_types` parameter) is more efficient than filtering in your handler, as it reduces the number of executions your agent receives.
+</Tip>
+
+## Archiving Completed Tasks
+
+Archive task metadata to a database:
+
+```python
+import sqlite3
+from datetime import datetime
+from avala_agents import TaskAgent, TaskContext
+
+# Initialize database
+conn = sqlite3.connect("tasks.db")
+conn.execute("""
+    CREATE TABLE IF NOT EXISTS completed_tasks (
+        task_uid TEXT PRIMARY KEY,
+        task_name TEXT,
+        task_type TEXT,
+        task_status TEXT,
+        project_uid TEXT,
+        completed_at TEXT
+    )
+""")
+conn.commit()
+
+agent = TaskAgent(
+    api_key="avk_...",
+    name="task-archiver",
+)
+
+@agent.on("task.completed")
+def archive_task(context: TaskContext):
+    """Archive completed task metadata to local database."""
+    try:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO completed_tasks
+            (task_uid, task_name, task_type, task_status, project_uid, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                context.task_uid,
+                context.task_name,
+                context.task_type,
+                context.task_status,
+                context.project_uid,
+                datetime.utcnow().isoformat(),
+            ),
+        )
+        conn.commit()
+        context.approve("Archived to database")
+    except Exception as e:
+        context.flag(f"Archive failed: {str(e)}")
+
+if __name__ == "__main__":
+    try:
+        agent.run()
+    finally:
+        conn.close()
+```
+
+## Available Actions
+
+All context objects support these action methods:
+
+| Method | Description |
+|--------|-------------|
+| `context.approve(reason="")` | Accept the task completion |
+| `context.reject(reason="")` | Reject with an optional reason |
+| `context.flag(reason="")` | Flag for manual review |
+| `context.skip()` | Acknowledge without taking action |
+
+<Note>
+  For `task.completed` events, `approve()` and `skip()` are most commonly used. The `reject()` and `flag()` actions are available for cases where you need to signal an issue with the completion.
+</Note>
+
+## Error Handling
+
+Implement robust error handling for production deployments:
+
+```python
+import logging
+from avala_agents import TaskAgent, TaskContext, AgentActionError
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+agent = TaskAgent(
+    api_key="avk_...",
+    name="robust-completion-handler",
+)
+
+@agent.on("task.completed")
+def handle_completion(context: TaskContext):
+    """Handle task completion with error recovery."""
+    try:
+        # Your business logic here
+        logger.info(f"Processing completion for task {context.task_uid}")
+        
+        # Simulate external API call
+        # result = external_api.notify(context.task_uid)
+        
+        context.approve()
+        
+    except AgentActionError as e:
+        # Action submission failed - log and re-raise
+        logger.error(f"Failed to submit action: {e}")
+        raise
+        
+    except Exception as e:
+        # Business logic error - flag for review
+        logger.exception(f"Error processing task {context.task_uid}")
+        try:
+            context.flag(f"Processing error: {str(e)}")
+        except AgentActionError:
+            logger.error("Failed to flag task - execution will retry")
+            raise
+
+if __name__ == "__main__":
+    agent.run()
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Multi-Event Agent" icon="layer-group" href="/examples/multi-event-agent">
+    Handle multiple event types together
+  </Card>
+  
+  <Card title="Quality Checker" icon="check" href="/examples/quality-checker">
+    Validate results on submission
+  </Card>
+</CardGroup>

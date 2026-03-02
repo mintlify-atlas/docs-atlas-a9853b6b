@@ -1,0 +1,224 @@
+---
+title: Event Types
+description: Event type constants and identifiers
+---
+
+## Overview
+
+The Avala Agents SDK defines several constants that categorize the different types of events your agent can handle. These constants are used internally by the SDK to route events to the appropriate context class and validate event identifiers.
+
+## Event Type Constants
+
+### AGENT_EVENTS
+
+Complete list of all event identifiers supported by the agent framework.
+
+```python
+from avala_agents import AGENT_EVENTS
+
+print(AGENT_EVENTS)
+# ['dataset.created', 'dataset.updated', 'dataset.deleted',
+#  'export.completed', 'export.failed', 'task.completed',
+#  'result.submitted', 'result.accepted', 'result.rejected']
+```
+
+**Type**: `list[str]`
+
+**Values**:
+- `dataset.created`
+- `dataset.updated`
+- `dataset.deleted`
+- `export.completed`
+- `export.failed`
+- `task.completed`
+- `result.submitted`
+- `result.accepted`
+- `result.rejected`
+
+### RESULT_EVENTS
+
+Events whose execution payload contains result-level data. Handlers for these events receive a `ResultContext` object.
+
+```python
+from avala_agents import RESULT_EVENTS
+
+print(RESULT_EVENTS)
+# {'result.submitted', 'result.accepted', 'result.rejected'}
+```
+
+**Type**: `set[str]`
+
+**Values**:
+- `result.submitted` - Triggered when an annotator submits a result
+- `result.accepted` - Triggered when a result is accepted in the workflow
+- `result.rejected` - Triggered when a result is rejected and returned to the annotator
+
+### TASK_EVENTS
+
+Events whose execution payload contains task-level data. Handlers for these events receive a `TaskContext` object.
+
+```python
+from avala_agents import TASK_EVENTS
+
+print(TASK_EVENTS)
+# {'task.completed'}
+```
+
+**Type**: `set[str]`
+
+**Values**:
+- `task.completed` - Triggered when a task is marked as completed
+
+### DATASET_EVENTS
+
+Events whose execution payload contains dataset-level data. Handlers for these events receive an `EventContext` object.
+
+```python
+from avala_agents import DATASET_EVENTS
+
+print(DATASET_EVENTS)
+# {'dataset.created', 'dataset.updated', 'dataset.deleted'}
+```
+
+**Type**: `set[str]`
+
+**Values**:
+- `dataset.created` - Triggered when a new dataset is created
+- `dataset.updated` - Triggered when a dataset is updated
+- `dataset.deleted` - Triggered when a dataset is deleted
+
+### EXPORT_EVENTS
+
+Events whose execution payload contains export-level data. Handlers for these events receive an `EventContext` object.
+
+```python
+from avala_agents import EXPORT_EVENTS
+
+print(EXPORT_EVENTS)
+# {'export.completed', 'export.failed'}
+```
+
+**Type**: `set[str]`
+
+**Values**:
+- `export.completed` - Triggered when a dataset export completes successfully
+- `export.failed` - Triggered when a dataset export fails
+
+## Event to Context Mapping
+
+The SDK automatically maps event types to the appropriate context class:
+
+| Event Type | Event Category | Context Class | Description |
+|------------|----------------|---------------|-------------|
+| `result.submitted` | `RESULT_EVENTS` | `ResultContext` | New result submitted |
+| `result.accepted` | `RESULT_EVENTS` | `ResultContext` | Result accepted |
+| `result.rejected` | `RESULT_EVENTS` | `ResultContext` | Result rejected |
+| `task.completed` | `TASK_EVENTS` | `TaskContext` | Task completed |
+| `dataset.created` | `DATASET_EVENTS` | `EventContext` | Dataset created |
+| `dataset.updated` | `DATASET_EVENTS` | `EventContext` | Dataset updated |
+| `dataset.deleted` | `DATASET_EVENTS` | `EventContext` | Dataset deleted |
+| `export.completed` | `EXPORT_EVENTS` | `EventContext` | Export completed |
+| `export.failed` | `EXPORT_EVENTS` | `EventContext` | Export failed |
+
+## Usage Examples
+
+### Validating Event Types
+
+```python
+from avala_agents import TaskAgent, AGENT_EVENTS
+
+agent = TaskAgent(api_key="avk_...")
+
+# Valid event - no error
+@agent.on("result.submitted")
+def handle_result(context):
+    context.approve()
+
+# Invalid event - raises ValueError
+try:
+    @agent.on("invalid.event")
+    def handle_invalid(context):
+        pass
+except ValueError as e:
+    print(f"Error: {e}")
+    # Error: Unknown event 'invalid.event'. Supported events: ...
+```
+
+### Checking Event Categories
+
+```python
+from avala_agents import RESULT_EVENTS, TASK_EVENTS
+
+def handle_event(event_type: str):
+    if event_type in RESULT_EVENTS:
+        print("This is a result event")
+    elif event_type in TASK_EVENTS:
+        print("This is a task event")
+    else:
+        print("This is a dataset or export event")
+
+handle_event("result.submitted")  # "This is a result event"
+handle_event("task.completed")     # "This is a task event"
+handle_event("dataset.created")    # "This is a dataset or export event"
+```
+
+### Dynamic Handler Registration
+
+```python
+from avala_agents import TaskAgent, RESULT_EVENTS
+
+agent = TaskAgent(api_key="avk_...")
+
+def auto_approve_handler(context):
+    context.approve("Auto-approved")
+
+# Register the same handler for all result events
+for event_type in RESULT_EVENTS:
+    agent.on(event_type)(auto_approve_handler)
+```
+
+### Filtering Events by Category
+
+```python
+from avala_agents import TaskAgent, RESULT_EVENTS, TASK_EVENTS
+
+agent = TaskAgent(api_key="avk_...")
+
+# Create a set of events we want to handle
+handled_events = RESULT_EVENTS | TASK_EVENTS
+
+print(f"Handling {len(handled_events)} event types")
+print(f"Events: {', '.join(sorted(handled_events))}")
+
+# Register handlers only for result and task events
+for event_type in handled_events:
+    @agent.on(event_type)
+    def handle(context):
+        print(f"Received {context.event_type}")
+        context.skip()
+```
+
+## Valid Action Types
+
+While not an event type constant, the SDK also defines valid action values:
+
+```python
+from avala_agents._types import VALID_ACTIONS
+
+print(VALID_ACTIONS)
+# {'approve', 'reject', 'flag', 'skip'}
+```
+
+These actions correspond to the methods available on all context objects:
+- `approve()` - Approve the execution
+- `reject()` - Reject the execution
+- `flag()` - Flag for manual review
+- `skip()` - Acknowledge without action
+
+## Related Documentation
+
+- [TaskAgent](/api/task-agent) - Main agent class with event registration
+- [ResultContext](/api/result-context) - Context for result events
+- [TaskContext](/api/task-context) - Context for task events
+- [EventContext](/api/event-context) - Context for dataset and export events
+- [AgentEvent](/api/agent-event) - Raw event data structure

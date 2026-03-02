@@ -1,0 +1,403 @@
+---
+title: Polling Modes
+description: Understand the difference between blocking and non-blocking polling modes in Avala agents
+---
+
+## Overview
+
+The `TaskAgent` provides two polling modes for processing executions:
+
+- **`run()`** - Blocking mode that polls indefinitely
+- **`run_once()`** - Non-blocking mode that processes pending work and returns
+
+Choose the mode that best fits your deployment architecture and use case.
+
+## Blocking Mode: `run()`
+
+### How It Works
+
+The `run()` method starts an infinite polling loop that:
+
+1. Registers the agent with Avala (if not already registered)
+2. Fetches pending executions from the API
+3. Dispatches each execution to the appropriate handler
+4. Sleeps for `poll_interval` seconds if no work is available
+5. Repeats until interrupted
+
+See _agent.py:133-142 and _runner.py:34-56 for the implementation.
+
+### Basic Usage
+
+```python
+from avala_agents import TaskAgent
+
+agent = TaskAgent(api_key="avk_...", name="my-agent")
+
+@agent.on("result.submitted")
+def handle(context):
+    context.approve()
+
+# Blocks here indefinitely
+agent.run()
+```
+
+### Interrupting the Loop
+
+The blocking loop responds to `KeyboardInterrupt` (Ctrl-C):
+
+```python
+try:
+    agent.run()
+except KeyboardInterrupt:
+    print("Agent stopped")
+finally:
+    agent.close()
+```
+
+See _runner.py:53-54 for the interrupt handling.
+
+### When to Use
+
+<CardGroup cols={2}>
+  <Card title="Long-Running Services" icon="server">
+    Deploy as a daemon process or systemd service
+  </Card>
+  <Card title="Container Deployments" icon="docker">
+    Run as the main process in a Docker container
+  </Card>
+  <Card title="Dedicated Workers" icon="gears">
+    Agents that continuously process work
+  </Card>
+  <Card title="Simple Deployments" icon="rocket">
+    When you want a "set and forget" agent
+  </Card>
+</CardGroup>
+
+### Example: Docker Deployment
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY agent.py .
+
+CMD ["python", "agent.py"]
+```
+
+```python
+# agent.py
+from avala_agents import TaskAgent
+import os
+
+agent = TaskAgent(
+    api_key=os.environ["AVALA_API_KEY"],
+    name="docker-agent"
+)
+
+@agent.on("result.submitted")
+def handle(context):
+    context.approve()
+
+if __name__ == "__main__":
+    agent.run()  # Blocks indefinitely
+```
+
+## Non-Blocking Mode: `run_once()`
+
+### How It Works
+
+The `run_once()` method executes a single polling iteration:
+
+1. Registers the agent (if not already registered)
+2. Fetches all currently pending executions
+3. Processes each execution
+4. Returns the number of executions processed
+
+See _agent.py:144-155 and _runner.py:58-89 for the implementation.
+
+### Basic Usage
+
+```python
+from avala_agents import TaskAgent
+
+agent = TaskAgent(api_key="avk_...", name="my-agent")
+
+@agent.on("result.submitted")
+def handle(context):
+    context.approve()
+
+# Process pending work once
+count = agent.run_once()
+print(f"Processed {count} executions")
+
+agent.close()
+```
+
+### Return Value
+
+The method returns an integer indicating how many executions were processed:
+
+```python
+count = agent.run_once()
+
+if count == 0:
+    print("No work available")
+else:
+    print(f"Processed {count} executions")
+```
+
+### When to Use
+
+<CardGroup cols={2}>
+  <Card title="Scheduled Jobs" icon="clock">
+    Run via cron or scheduled tasks
+  </Card>
+  <Card title="Serverless Functions" icon="bolt">
+    AWS Lambda, Google Cloud Functions, etc.
+  </Card>
+  <Card title="Custom Loop Control" icon="arrows-spin">
+    Implement your own polling logic
+  </Card>
+  <Card title="Testing" icon="flask">
+    Process specific executions in tests
+  </Card>
+</CardGroup>
+
+### Example: Cron Job
+
+```bash
+# /etc/cron.d/avala-agent
+# Run every 5 minutes
+*/5 * * * * /usr/bin/python3 /opt/agent/process.py
+```
+
+```python
+# /opt/agent/process.py
+import logging
+from avala_agents import TaskAgent
+import os
+
+logging.basicConfig(level=logging.INFO)
+
+agent = TaskAgent(
+    api_key=os.environ["AVALA_API_KEY"],
+    name="cron-agent"
+)
+
+@agent.on("result.submitted")
+def handle(context):
+    context.approve()
+
+if __name__ == "__main__":
+    count = agent.run_once()
+    print(f"Processed {count} executions")
+    agent.close()
+```
+
+### Example: AWS Lambda
+
+```python
+import os
+from avala_agents import TaskAgent
+
+# Initialize agent outside handler for reuse
+agent = TaskAgent(
+    api_key=os.environ["AVALA_API_KEY"],
+    name="lambda-agent"
+)
+
+@agent.on("result.submitted")
+def review(context):
+    # Your logic here
+    context.approve()
+
+def lambda_handler(event, context):
+    """AWS Lambda entry point."""
+    count = agent.run_once()
+    
+    return {
+        "statusCode": 200,
+        "body": f"Processed {count} executions"
+    }
+```
+
+<Info>
+In serverless environments, the agent's HTTP connection pool is reused across invocations for better performance.
+</Info>
+
+### Example: Custom Polling Loop
+
+```python
+import time
+from avala_agents import TaskAgent
+
+agent = TaskAgent(api_key="avk_...", poll_interval=5.0)
+
+@agent.on("result.submitted")
+def handle(context):
+    context.approve()
+
+running = True
+
+try:
+    while running:
+        count = agent.run_once()
+        
+        if count > 0:
+            print(f"Processed {count} executions")
+            # Process again immediately if work was found
+            continue
+        else:
+            # No work - wait before next poll
+            time.sleep(5.0)
+except KeyboardInterrupt:
+    print("Stopped")
+finally:
+    agent.close()
+```
+
+## Comparison
+
+| Feature | `run()` | `run_once()` |
+|---------|---------|-------------|
+| **Execution** | Blocks indefinitely | Returns after processing |
+| **Return Value** | None | Integer (count processed) |
+| **Loop Control** | Built-in | Manual |
+| **Interruption** | Ctrl-C (KeyboardInterrupt) | N/A |
+| **Use Case** | Long-running services | Scheduled jobs, serverless |
+| **Poll Interval** | Automatic | Manual (if looping) |
+| **Registration** | Once at startup | Once (cached for subsequent calls) |
+
+## Poll Interval Configuration
+
+Both modes respect the `poll_interval` parameter:
+
+```python
+agent = TaskAgent(
+    api_key="avk_...",
+    poll_interval=10.0  # seconds
+)
+```
+
+- **`run()`**: Sleeps for `poll_interval` when no work is found (see _runner.py:50-52)
+- **`run_once()`**: Poll interval has no direct effect, but you can use it in custom loops
+
+<Warning>
+Very low poll intervals (< 1 second) may trigger rate limiting. The default of 5 seconds is recommended.
+</Warning>
+
+## Resource Management
+
+Both modes require proper cleanup:
+
+<CodeGroup>
+```python Context Manager (Recommended)
+with TaskAgent(api_key="avk_...") as agent:
+    @agent.on("result.submitted")
+    def handle(context):
+        context.approve()
+    
+    agent.run_once()  # or agent.run()
+# Automatically calls agent.close()
+```
+
+```python Manual Cleanup
+agent = TaskAgent(api_key="avk_...")
+
+try:
+    agent.run_once()
+finally:
+    agent.close()  # Release HTTP connection pool
+```
+</CodeGroup>
+
+See _agent.py:157-165 for the context manager implementation.
+
+## Advanced Patterns
+
+### Hybrid Approach
+
+```python
+import os
+from avala_agents import TaskAgent
+
+agent = TaskAgent(api_key="avk_...")
+
+@agent.on("result.submitted")
+def handle(context):
+    context.approve()
+
+if os.environ.get("RUN_MODE") == "daemon":
+    # Production: long-running
+    agent.run()
+else:
+    # Development/testing: one-off
+    count = agent.run_once()
+    print(f"Processed {count} executions")
+    agent.close()
+```
+
+### Batched Processing
+
+```python
+import time
+from avala_agents import TaskAgent
+
+agent = TaskAgent(api_key="avk_...")
+
+@agent.on("result.submitted")
+def handle(context):
+    context.approve()
+
+# Process work in batches every hour
+while True:
+    count = agent.run_once()
+    print(f"Batch complete: {count} executions")
+    time.sleep(3600)  # 1 hour
+```
+
+### Graceful Shutdown with run_once()
+
+```python
+import signal
+import time
+from avala_agents import TaskAgent
+
+agent = TaskAgent(api_key="avk_...")
+running = True
+
+def shutdown(signum, frame):
+    global running
+    running = False
+    print("Shutdown signal received")
+
+signal.signal(signal.SIGTERM, shutdown)
+signal.signal(signal.SIGINT, shutdown)
+
+@agent.on("result.submitted")
+def handle(context):
+    context.approve()
+
+try:
+    while running:
+        count = agent.run_once()
+        if count == 0:
+            time.sleep(5.0)
+finally:
+    agent.close()
+    print("Shutdown complete")
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Learn about all configuration options
+  </Card>
+  <Card title="Best Practices" icon="star" href="/guides/best-practices">
+    Follow deployment and security guidelines
+  </Card>
+</CardGroup>

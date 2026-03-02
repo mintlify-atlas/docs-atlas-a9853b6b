@@ -1,0 +1,213 @@
+---
+title: ResultContext
+description: Context object for result event handlers
+---
+
+## Overview
+
+The `ResultContext` dataclass is passed to handlers registered for result events (`result.submitted`, `result.accepted`, `result.rejected`). It provides access to the annotation result data and exposes action methods to submit decisions back to the Avala platform.
+
+## Attributes
+
+<ResponseField name="execution_uid" type="str">
+  Unique identifier for this agent execution.
+</ResponseField>
+
+<ResponseField name="event_type" type="str">
+  The event type that triggered this execution (e.g., `"result.submitted"`).
+</ResponseField>
+
+<ResponseField name="task_uid" type="str">
+  Unique identifier for the task this result belongs to.
+</ResponseField>
+
+<ResponseField name="result_uid" type="str">
+  Unique identifier for this specific result.
+</ResponseField>
+
+<ResponseField name="result_data" type="list[dict[str, Any]]">
+  List of annotation objects submitted by the annotator. Each dict contains the annotation data specific to your task type.
+</ResponseField>
+
+<ResponseField name="result_metadata" type="dict[str, Any]">
+  Additional metadata about the result submission, such as time spent, annotator information, etc.
+</ResponseField>
+
+<ResponseField name="task_name" type="str | None">
+  Human-readable name of the task, if available.
+</ResponseField>
+
+<ResponseField name="task_type" type="str | None">
+  Task type identifier (e.g., `"image_classification"`, `"ner"`), if available.
+</ResponseField>
+
+<ResponseField name="project_uid" type="str | None">
+  Unique identifier for the project this result belongs to, if available.
+</ResponseField>
+
+## Methods
+
+### approve()
+
+Approve this result and advance it through the workflow.
+
+```python
+@agent.on("result.submitted")
+def handle(context):
+    context.approve("Quality check passed")
+```
+
+#### Parameters
+
+<ParamField path="reason" type="str" default='""'>
+  Optional human-readable explanation for the approval.
+</ParamField>
+
+#### Raises
+
+- `AgentActionError`: If the action submission fails.
+- `AgentTimeoutError`: If the action submission times out.
+
+### reject()
+
+Reject this result, returning it to the annotator for correction.
+
+```python
+@agent.on("result.submitted")
+def handle(context):
+    if not context.result_data:
+        context.reject("No annotations provided")
+```
+
+#### Parameters
+
+<ParamField path="reason" type="str" default='""'>
+  Human-readable explanation shown to the annotator explaining why the result was rejected.
+</ParamField>
+
+#### Raises
+
+- `AgentActionError`: If the action submission fails.
+- `AgentTimeoutError`: If the action submission times out.
+
+### flag()
+
+Flag this result for manual human review.
+
+```python
+@agent.on("result.submitted")
+def handle(context):
+    if context.result_metadata.get("confidence", 1.0) < 0.7:
+        context.flag("Low confidence annotations")
+```
+
+#### Parameters
+
+<ParamField path="reason" type="str" default='""'>
+  Human-readable explanation for the reviewer describing why this result was flagged.
+</ParamField>
+
+#### Raises
+
+- `AgentActionError`: If the action submission fails.
+- `AgentTimeoutError`: If the action submission times out.
+
+### skip()
+
+Acknowledge the execution without taking any workflow action.
+
+```python
+@agent.on("result.submitted")
+def handle(context):
+    # Just log the result without affecting workflow
+    print(f"Result {context.result_uid} received")
+    context.skip()
+```
+
+#### Raises
+
+- `AgentActionError`: If the action submission fails.
+- `AgentTimeoutError`: If the action submission times out.
+
+## Usage Examples
+
+### Basic Quality Check
+
+```python
+@agent.on("result.submitted")
+def quality_check(context):
+    # Reject empty results
+    if not context.result_data:
+        context.reject("No annotations provided")
+        return
+    
+    # Otherwise approve
+    context.approve()
+```
+
+### Validation with Metadata
+
+```python
+@agent.on("result.submitted")
+def validate_result(context):
+    time_spent = context.result_metadata.get("time_spent", 0)
+    
+    # Flag suspiciously quick submissions
+    if time_spent < 5:
+        context.flag("Task completed in less than 5 seconds")
+        return
+    
+    # Check annotation count
+    if len(context.result_data) == 0:
+        context.reject("No annotations found")
+        return
+    
+    context.approve("Quality check passed")
+```
+
+### Multi-Stage Review
+
+```python
+@agent.on("result.submitted")
+def initial_review(context):
+    # First-pass validation
+    if not context.result_data:
+        context.reject("No annotations provided")
+        return
+    
+    # Check for required fields
+    for annotation in context.result_data:
+        if "label" not in annotation:
+            context.reject("Missing required 'label' field")
+            return
+    
+    context.approve("Initial validation passed")
+
+@agent.on("result.accepted")
+def final_review(context):
+    # Second-pass quality check after acceptance
+    print(f"Result {context.result_uid} accepted and finalized")
+    context.skip()
+```
+
+### Conditional Routing
+
+```python
+@agent.on("result.submitted")
+def route_result(context):
+    # Route based on task type
+    if context.task_type == "image_classification":
+        # Stricter validation for classification
+        if len(context.result_data) != 1:
+            context.reject("Expected exactly one classification")
+            return
+    
+    elif context.task_type == "object_detection":
+        # Check bounding boxes
+        for obj in context.result_data:
+            if "bbox" not in obj:
+                context.reject("Missing bounding box data")
+                return
+    
+    context.approve()
+```

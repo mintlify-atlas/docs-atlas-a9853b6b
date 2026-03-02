@@ -1,0 +1,330 @@
+---
+title: Exceptions
+description: Error hierarchy for the Avala Agents SDK
+---
+
+## Overview
+
+The Avala Agents SDK defines a hierarchy of exception classes to represent different error conditions that may occur during agent operation. All exceptions inherit from the base `AgentError` class.
+
+## Exception Hierarchy
+
+```
+Exception
+└── AgentError
+    ├── AgentTimeoutError
+    ├── AgentActionError
+    └── AgentRegistrationError
+```
+
+## Base Exception
+
+### AgentError
+
+Base exception class for all avala-agents errors.
+
+```python
+from avala_agents import AgentError
+
+try:
+    # Agent operations
+    agent.run()
+except AgentError as e:
+    print(f"Agent error occurred: {e}")
+```
+
+**Inheritance**: `Exception`
+
+**Usage**: Catch this exception to handle any SDK-specific error. Use the more specific exception classes when you need to handle particular error types differently.
+
+## Specific Exceptions
+
+### AgentTimeoutError
+
+Raised when an agent operation times out.
+
+```python
+from avala_agents import AgentTimeoutError
+
+try:
+    agent.run()
+except AgentTimeoutError as e:
+    print(f"Operation timed out: {e}")
+    # Retry logic or cleanup
+```
+
+**Inheritance**: `AgentError` → `Exception`
+
+**Common scenarios**:
+- Timeout during agent registration
+- Timeout while submitting an action to the server
+- Network latency issues causing HTTP request timeouts
+
+**Related operations**:
+- `TaskAgent.__init__()` - Registration timeout during first connection
+- `TaskAgent.run()` - Timeout during registration
+- `TaskAgent.run_once()` - Timeout during registration
+- Context action methods (`approve()`, `reject()`, `flag()`, `skip()`) - Timeout during action submission
+
+### AgentActionError
+
+Raised when submitting an agent action fails.
+
+```python
+from avala_agents import AgentActionError
+
+@agent.on("result.submitted")
+def handle(context):
+    try:
+        context.approve()
+    except AgentActionError as e:
+        print(f"Failed to submit action: {e}")
+        if e.status_code:
+            print(f"HTTP status code: {e.status_code}")
+        # Fallback logic
+```
+
+**Inheritance**: `AgentError` → `Exception`
+
+#### Attributes
+
+<ResponseField name="status_code" type="int | None">
+  HTTP status code from the failed request, if available. `None` if the error was not HTTP-related (e.g., network error).
+</ResponseField>
+
+**Common scenarios**:
+- Network error while submitting action
+- Server returns non-2xx response
+- Invalid action data
+- Execution UID not found
+
+**Related operations**:
+- `ResultContext.approve()`, `reject()`, `flag()`, `skip()`
+- `TaskContext.approve()`, `reject()`, `flag()`, `skip()`
+- `EventContext.approve()`, `reject()`, `flag()`, `skip()`
+
+### AgentRegistrationError
+
+Raised when agent registration or update fails.
+
+```python
+from avala_agents import AgentRegistrationError
+
+try:
+    agent = TaskAgent(api_key="avk_...", name="my-agent")
+    agent.run()
+except AgentRegistrationError as e:
+    print(f"Failed to register agent: {e}")
+    if e.status_code:
+        print(f"HTTP status code: {e.status_code}")
+```
+
+**Inheritance**: `AgentError` → `Exception`
+
+#### Attributes
+
+<ResponseField name="status_code" type="int | None">
+  HTTP status code from the failed registration request, if available. `None` if the error was not HTTP-related.
+</ResponseField>
+
+**Common scenarios**:
+- Invalid API key
+- Network error during registration
+- Server returns non-2xx response
+- Missing required registration fields
+- Server returns success but no agent UID
+
+**Related operations**:
+- `TaskAgent.run()` - First call triggers registration
+- `TaskAgent.run_once()` - First call triggers registration
+
+## Error Handling Patterns
+
+### Basic Error Handling
+
+```python
+from avala_agents import TaskAgent, AgentError
+
+agent = TaskAgent(api_key="avk_...", name="my-agent")
+
+@agent.on("result.submitted")
+def handle(context):
+    try:
+        # Your validation logic
+        if not context.result_data:
+            context.reject("No data")
+        else:
+            context.approve()
+    except AgentError as e:
+        print(f"Error processing result: {e}")
+        # Don't re-raise - agent continues processing
+
+try:
+    agent.run()
+except KeyboardInterrupt:
+    print("Shutting down...")
+except AgentError as e:
+    print(f"Agent failed: {e}")
+finally:
+    agent.close()
+```
+
+### Specific Exception Handling
+
+```python
+from avala_agents import (
+    TaskAgent,
+    AgentRegistrationError,
+    AgentActionError,
+    AgentTimeoutError,
+)
+import time
+
+agent = TaskAgent(api_key="avk_...", name="my-agent")
+
+@agent.on("result.submitted")
+def handle(context):
+    try:
+        context.approve()
+    except AgentTimeoutError:
+        print("Timeout - retrying...")
+        time.sleep(1)
+        context.approve()  # Retry
+    except AgentActionError as e:
+        print(f"Action failed (HTTP {e.status_code}): {e}")
+        # Don't retry - mark as failed
+
+try:
+    agent.run()
+except AgentRegistrationError as e:
+    print(f"Registration failed (HTTP {e.status_code}): {e}")
+    print("Check your API key and network connection")
+except AgentTimeoutError:
+    print("Registration timed out - check network connection")
+```
+
+### Retry Logic
+
+```python
+from avala_agents import TaskAgent, AgentActionError, AgentTimeoutError
+import time
+
+def submit_with_retry(action_func, max_retries=3):
+    """Retry action submission with exponential backoff."""
+    for attempt in range(max_retries):
+        try:
+            action_func()
+            return
+        except AgentTimeoutError:
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt
+                print(f"Timeout - retrying in {wait}s...")
+                time.sleep(wait)
+            else:
+                print("Max retries exceeded")
+                raise
+        except AgentActionError as e:
+            # Don't retry on action errors
+            print(f"Action failed (HTTP {e.status_code}): {e}")
+            raise
+
+agent = TaskAgent(api_key="avk_...")
+
+@agent.on("result.submitted")
+def handle(context):
+    if context.result_data:
+        submit_with_retry(lambda: context.approve())
+    else:
+        submit_with_retry(lambda: context.reject("No data"))
+```
+
+### Logging and Monitoring
+
+```python
+import logging
+from avala_agents import (
+    TaskAgent,
+    AgentError,
+    AgentActionError,
+    AgentTimeoutError,
+)
+
+logger = logging.getLogger(__name__)
+
+agent = TaskAgent(api_key="avk_...", name="my-agent")
+
+@agent.on("result.submitted")
+def handle(context):
+    try:
+        context.approve()
+    except AgentTimeoutError as e:
+        logger.error(
+            "Action timeout",
+            extra={
+                "execution_uid": context.execution_uid,
+                "event_type": context.event_type,
+                "error": str(e),
+            },
+            exc_info=True,
+        )
+    except AgentActionError as e:
+        logger.error(
+            "Action failed",
+            extra={
+                "execution_uid": context.execution_uid,
+                "event_type": context.event_type,
+                "status_code": e.status_code,
+                "error": str(e),
+            },
+            exc_info=True,
+        )
+    except AgentError as e:
+        logger.error(
+            "Unexpected agent error",
+            extra={
+                "execution_uid": context.execution_uid,
+                "event_type": context.event_type,
+                "error": str(e),
+            },
+            exc_info=True,
+        )
+```
+
+### Context Manager Pattern
+
+```python
+from avala_agents import TaskAgent, AgentError
+
+try:
+    with TaskAgent(api_key="avk_...", name="my-agent") as agent:
+        @agent.on("result.submitted")
+        def handle(context):
+            context.approve()
+        
+        agent.run_once()
+except AgentError as e:
+    print(f"Agent error: {e}")
+# Connection automatically closed
+```
+
+## HTTP Status Codes
+
+When `AgentActionError` or `AgentRegistrationError` include a `status_code`, common values include:
+
+- `400` - Bad request (invalid action data)
+- `401` - Unauthorized (invalid API key)
+- `403` - Forbidden (insufficient permissions)
+- `404` - Not found (execution or agent UID not found)
+- `422` - Unprocessable entity (validation error)
+- `429` - Too many requests (rate limited)
+- `500` - Internal server error
+- `502` - Bad gateway
+- `503` - Service unavailable
+- `504` - Gateway timeout
+
+## Related Documentation
+
+- [TaskAgent](/api/task-agent) - Main agent class
+- [ResultContext](/api/result-context) - Result event context with action methods
+- [TaskContext](/api/task-context) - Task event context with action methods
+- [EventContext](/api/event-context) - Dataset/export event context with action methods

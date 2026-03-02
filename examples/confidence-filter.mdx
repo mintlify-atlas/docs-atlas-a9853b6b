@@ -1,0 +1,217 @@
+---
+title: "Confidence Filter Agent"
+description: "Filter annotation results based on metadata confidence scores"
+---
+
+This example shows how to build an agent that filters results based on confidence scores stored in result metadata.
+
+## Overview
+
+The confidence filter agent:
+- Reads confidence scores from `result_metadata`
+- Approves high-confidence results automatically
+- Flags low-confidence results for manual review
+- Rejects results missing required confidence data
+
+## Complete Example
+
+```python
+from avala_agents import TaskAgent
+
+agent = TaskAgent(
+    api_key="avk_...",
+    name="confidence-filter",
+    project="proj_uid",
+)
+
+@agent.on("result.submitted")
+def filter_by_confidence(context):
+    """Filter results based on confidence score metadata."""
+    confidence = context.result_metadata.get("confidence")
+
+    if confidence is None:
+        context.reject("Missing confidence score")
+    elif confidence < 0.5:
+        context.flag("Low confidence — needs manual review")
+    elif confidence >= 0.85:
+        context.approve("High confidence")
+    else:
+        context.flag("Medium confidence — please verify")
+
+agent.run()
+```
+
+## How It Works
+
+<Steps>
+  <Step title="Access metadata">
+    The `result_metadata` property contains custom metadata attached to the result. This is where confidence scores and other custom data are typically stored.
+
+    ```python
+    confidence = context.result_metadata.get("confidence")
+    ```
+
+    <Tip>
+      Use `.get()` with a default value to safely handle missing keys:
+      ```python
+      confidence = context.result_metadata.get("confidence", 1.0)
+      ```
+    </Tip>
+  </Step>
+
+  <Step title="Define thresholds">
+    Set confidence thresholds based on your quality requirements.
+
+    ```python
+    LOW_CONFIDENCE_THRESHOLD = 0.5
+    HIGH_CONFIDENCE_THRESHOLD = 0.85
+    ```
+  </Step>
+
+  <Step title="Route based on score">
+    Use conditional logic to route results to the appropriate action.
+
+    ```python
+    if confidence is None:
+        context.reject("Missing confidence score")
+    elif confidence < LOW_CONFIDENCE_THRESHOLD:
+        context.flag("Low confidence — needs manual review")
+    elif confidence >= HIGH_CONFIDENCE_THRESHOLD:
+        context.approve("High confidence")
+    else:
+        context.flag("Medium confidence — please verify")
+    ```
+  </Step>
+</Steps>
+
+## Advanced: Multi-Factor Filtering
+
+Combine multiple metadata fields to make more sophisticated decisions:
+
+```python
+from avala_agents import TaskAgent
+
+agent = TaskAgent(
+    api_key="avk_...",
+    name="advanced-filter",
+)
+
+@agent.on("result.submitted")
+def advanced_filter(context):
+    """Filter based on multiple quality signals."""
+    metadata = context.result_metadata
+    
+    confidence = metadata.get("confidence", 0.0)
+    processing_time = metadata.get("processing_time_seconds", 0)
+    annotation_count = len(context.result_data)
+    
+    # Reject if no annotations
+    if annotation_count == 0:
+        context.reject("No annotations provided")
+        return
+    
+    # Flag suspiciously fast submissions
+    if processing_time < 5:
+        context.flag("Completed too quickly — possible spam")
+        return
+    
+    # Route based on confidence
+    if confidence < 0.5:
+        context.flag(f"Low confidence ({confidence:.2f})")
+    elif confidence >= 0.85:
+        context.approve(f"High confidence ({confidence:.2f})")
+    else:
+        context.flag(f"Medium confidence ({confidence:.2f})")
+
+agent.run()
+```
+
+## Configuration with Environment Variables
+
+Make thresholds configurable without code changes:
+
+```python
+import os
+from avala_agents import TaskAgent
+
+# Read thresholds from environment
+LOW_THRESHOLD = float(os.getenv("CONFIDENCE_LOW_THRESHOLD", "0.5"))
+HIGH_THRESHOLD = float(os.getenv("CONFIDENCE_HIGH_THRESHOLD", "0.85"))
+
+agent = TaskAgent(
+    api_key=os.environ["AVALA_API_KEY"],
+    name="confidence-filter",
+)
+
+@agent.on("result.submitted")
+def filter_by_confidence(context):
+    confidence = context.result_metadata.get("confidence", 1.0)
+    
+    if confidence < LOW_THRESHOLD:
+        context.flag(f"Low confidence: {confidence:.2f}")
+    elif confidence >= HIGH_THRESHOLD:
+        context.approve(f"High confidence: {confidence:.2f}")
+    else:
+        context.flag(f"Medium confidence: {confidence:.2f}")
+
+if __name__ == "__main__":
+    agent.run()
+```
+
+Run with custom thresholds:
+
+```bash
+export CONFIDENCE_LOW_THRESHOLD=0.6
+export CONFIDENCE_HIGH_THRESHOLD=0.9
+python confidence_filter.py
+```
+
+## Understanding Result Metadata
+
+<Note>
+  The `result_metadata` dictionary can contain any JSON-serializable data. Common fields include:
+  - `confidence` - Model confidence scores
+  - `processing_time_seconds` - Time spent on the task
+  - `model_version` - Version of the model used
+  - `annotator_id` - Identifier for the annotator
+  - Custom fields specific to your workflow
+</Note>
+
+## Testing Your Agent
+
+Test with a single batch without blocking:
+
+```python
+from avala_agents import TaskAgent
+
+agent = TaskAgent(
+    api_key="avk_...",
+    name="confidence-filter-test",
+)
+
+@agent.on("result.submitted")
+def filter_by_confidence(context):
+    confidence = context.result_metadata.get("confidence", 1.0)
+    print(f"Processing result {context.result_uid}: confidence={confidence}")
+    
+    if confidence < 0.5:
+        context.flag("Low confidence")
+    else:
+        context.approve()
+
+# Process one batch and exit
+count = agent.run_once()
+print(f"Processed {count} execution(s)")
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quality Checker" icon="check" href="/examples/quality-checker">
+    Basic validation example
+  </Card>
+  
+  <Card title="Multi-Event Agent" icon="layer-group" href="/examples/multi-event-agent">
+    Handle multiple event types
+  </Card>
+</CardGroup>

@@ -1,0 +1,317 @@
+---
+title: Contexts
+description: Understand the context objects passed to your event handlers
+---
+
+When an event triggers your handler, the SDK passes a context object containing event data and action methods. There are three context types, each corresponding to a category of events.
+
+## Context types
+
+### ResultContext
+
+Passed to handlers for result events (`result.submitted`, `result.accepted`, `result.rejected`).
+
+Provides access to annotation results and metadata, along with workflow action methods.
+
+```python
+from avala_agents import ResultContext
+
+@agent.on("result.submitted")
+def review(context: ResultContext) -> None:
+    # Access result data
+    annotations = context.result_data
+    metadata = context.result_metadata
+    
+    # Check quality
+    if len(annotations) < 3:
+        context.reject("Need at least 3 annotations")
+    else:
+        context.approve()
+```
+
+#### Fields
+
+<ParamField path="execution_uid" type="str">
+  Unique identifier for this execution instance.
+</ParamField>
+
+<ParamField path="event_type" type="str">
+  The event type that triggered this handler (e.g., `"result.submitted"`).
+</ParamField>
+
+<ParamField path="task_uid" type="str">
+  Unique identifier for the task this result belongs to.
+</ParamField>
+
+<ParamField path="result_uid" type="str">
+  Unique identifier for the annotation result.
+</ParamField>
+
+<ParamField path="result_data" type="list[dict[str, Any]]">
+  The annotation data submitted by the annotator. Structure depends on your task configuration.
+</ParamField>
+
+<ParamField path="result_metadata" type="dict[str, Any]">
+  Additional metadata about the result (e.g., annotator info, timestamps, custom fields).
+</ParamField>
+
+<ParamField path="task_name" type="str | None">
+  Human-readable name of the task.
+</ParamField>
+
+<ParamField path="task_type" type="str | None">
+  Type identifier for the task (e.g., `"image-classification"`).
+</ParamField>
+
+<ParamField path="project_uid" type="str | None">
+  Unique identifier for the project this result belongs to.
+</ParamField>
+
+#### Methods
+
+ResultContext provides four action methods:
+
+- [`approve(reason="")`](/concepts/actions#approve) - Approve the result
+- [`reject(reason="")`](/concepts/actions#reject) - Reject the result
+- [`flag(reason="")`](/concepts/actions#flag) - Flag for manual review
+- [`skip()`](/concepts/actions#skip) - Acknowledge without action
+
+### TaskContext
+
+Passed to handlers for task events (`task.completed`).
+
+Provides access to task state information along with action methods.
+
+```python
+from avala_agents import TaskContext
+
+@agent.on("task.completed")
+def finalize(context: TaskContext) -> None:
+    print(f"Task {context.task_name} completed")
+    print(f"Status: {context.task_status}")
+    context.approve()
+```
+
+#### Fields
+
+<ParamField path="execution_uid" type="str">
+  Unique identifier for this execution instance.
+</ParamField>
+
+<ParamField path="event_type" type="str">
+  The event type that triggered this handler (e.g., `"task.completed"`).
+</ParamField>
+
+<ParamField path="task_uid" type="str">
+  Unique identifier for the task.
+</ParamField>
+
+<ParamField path="task_name" type="str | None">
+  Human-readable name of the task.
+</ParamField>
+
+<ParamField path="task_type" type="str | None">
+  Type identifier for the task.
+</ParamField>
+
+<ParamField path="task_status" type="str | None">
+  Current status of the task (e.g., `"completed"`, `"in_progress"`).
+</ParamField>
+
+<ParamField path="project_uid" type="str | None">
+  Unique identifier for the project this task belongs to.
+</ParamField>
+
+#### Methods
+
+TaskContext provides four action methods:
+
+- [`approve(reason="")`](/concepts/actions#approve) - Approve the task execution
+- [`reject(reason="")`](/concepts/actions#reject) - Reject the task execution
+- [`flag(reason="")`](/concepts/actions#flag) - Flag for manual review
+- [`skip()`](/concepts/actions#skip) - Acknowledge without action
+
+### EventContext
+
+Passed to handlers for dataset and export events (`dataset.*`, `export.*`).
+
+Provides access to resource-level metadata through a generic payload.
+
+```python
+from avala_agents import EventContext
+
+@agent.on("dataset.created")
+def initialize(context: EventContext) -> None:
+    dataset_uid = context.resource_uid
+    payload = context.payload
+    
+    print(f"New dataset: {dataset_uid}")
+    print(f"Project: {context.project_uid}")
+    
+    # Access event-specific data from payload
+    dataset_name = payload.get("dataset_name")
+    
+    context.skip()
+```
+
+#### Fields
+
+<ParamField path="execution_uid" type="str">
+  Unique identifier for this execution instance.
+</ParamField>
+
+<ParamField path="event_type" type="str">
+  The event type that triggered this handler (e.g., `"dataset.created"`, `"export.completed"`).
+</ParamField>
+
+<ParamField path="resource_uid" type="str | None">
+  Unique identifier for the resource (dataset UID or export UID).
+</ParamField>
+
+<ParamField path="resource_type" type="str | None">
+  Type of resource (e.g., `"dataset"`, `"export"`).
+</ParamField>
+
+<ParamField path="project_uid" type="str | None">
+  Unique identifier for the project this resource belongs to.
+</ParamField>
+
+<ParamField path="payload" type="dict[str, Any]">
+  Full event payload containing all event-specific data. Structure varies by event type.
+</ParamField>
+
+#### Methods
+
+EventContext provides four action methods:
+
+- [`approve(reason="")`](/concepts/actions#approve) - Approve the event execution
+- [`reject(reason="")`](/concepts/actions#reject) - Reject the event execution
+- [`flag(reason="")`](/concepts/actions#flag) - Flag for manual review
+- [`skip()`](/concepts/actions#skip) - Acknowledge without action
+
+## Context selection
+
+The SDK automatically selects the appropriate context type based on the event:
+
+```python
+# From _agent.py:_build_context()
+
+if event.event_type in RESULT_EVENTS:
+    return ResultContext(...)  # result.submitted, result.accepted, result.rejected
+
+if event.event_type in TASK_EVENTS:
+    return TaskContext(...)    # task.completed
+
+if event.event_type in DATASET_EVENTS or event.event_type in EXPORT_EVENTS:
+    return EventContext(...)   # dataset.*, export.*
+```
+
+<Info>
+You don't need to manually construct context objects. The SDK creates them automatically when dispatching events to your handlers.
+</Info>
+
+## Type annotations
+
+Use type hints to get editor autocomplete and type checking:
+
+```python
+from avala_agents import TaskAgent, ResultContext, TaskContext, EventContext
+
+agent = TaskAgent(api_key="avk_...", name="typed-agent")
+
+@agent.on("result.submitted")
+def validate(context: ResultContext) -> None:
+    # IDE knows about result_data, result_metadata, etc.
+    if not context.result_data:
+        context.reject("Empty result")
+
+@agent.on("task.completed")
+def finalize(context: TaskContext) -> None:
+    # IDE knows about task_status, task_name, etc.
+    print(f"Task {context.task_name} done")
+    context.approve()
+
+@agent.on("dataset.created")
+def init_dataset(context: EventContext) -> None:
+    # IDE knows about resource_uid, payload, etc.
+    print(f"Dataset {context.resource_uid} created")
+    context.skip()
+```
+
+## Common patterns
+
+### Accessing result data
+
+```python
+@agent.on("result.submitted")
+def validate_annotations(context: ResultContext) -> None:
+    # result_data is a list of annotation objects
+    for annotation in context.result_data:
+        label = annotation.get("label")
+        confidence = annotation.get("confidence", 0)
+        
+        if confidence < 0.8:
+            context.reject(f"Low confidence: {confidence}")
+            return
+    
+    context.approve()
+```
+
+### Using metadata
+
+```python
+@agent.on("result.submitted")
+def check_metadata(context: ResultContext) -> None:
+    # Access custom metadata fields
+    annotator_id = context.result_metadata.get("annotator_id")
+    duration = context.result_metadata.get("duration_seconds")
+    
+    if duration and duration < 5:
+        context.flag("Suspiciously fast annotation")
+    else:
+        context.approve()
+```
+
+### Working with payload data
+
+```python
+@agent.on("export.completed")
+def process_export(context: EventContext) -> None:
+    # Access event-specific fields from payload
+    export_format = context.payload.get("format")
+    file_url = context.payload.get("file_url")
+    record_count = context.payload.get("record_count")
+    
+    print(f"Export completed: {record_count} records in {export_format}")
+    # Download and process file_url
+    context.skip()
+```
+
+## Internal fields
+
+All context objects contain a `_agent` field (a reference to the `TaskAgent` instance) used internally for submitting actions. This field is excluded from the string representation and is not part of the public API.
+
+```python
+# From _context.py
+@dataclass
+class ResultContext:
+    # ... public fields ...
+    
+    # Internal reference — not part of the public API.
+    _agent: TaskAgent = field(repr=False)
+```
+
+<Warning>
+Do not access or modify the `_agent` field directly. Use the public action methods instead.
+</Warning>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Actions" icon="check" href="/concepts/actions">
+    Learn about action methods available on contexts
+  </Card>
+  <Card title="Events" icon="bolt" href="/concepts/events">
+    Explore all supported event types
+  </Card>
+</CardGroup>

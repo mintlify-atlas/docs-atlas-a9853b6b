@@ -1,0 +1,324 @@
+---
+title: Error Handling
+description: Learn how to handle errors, exceptions, and timeouts in your Avala agents
+---
+
+## Exception Hierarchy
+
+The `avala-agents` SDK provides a structured exception hierarchy for handling errors:
+
+```python
+AgentError                    # Base exception
+├── AgentTimeoutError         # Network timeout
+├── AgentActionError          # Action submission failed
+└── AgentRegistrationError    # Agent registration failed
+```
+
+All SDK exceptions inherit from `AgentError` (see _exceptions.py:6-7), making it easy to catch all agent-related errors.
+
+## Exception Types
+
+### AgentError
+
+Base exception for all agent-related errors.
+
+```python
+from avala_agents import AgentError
+
+try:
+    agent.run()
+except AgentError as e:
+    print(f"Agent error occurred: {e}")
+```
+
+### AgentTimeoutError
+
+Raised when a network request times out (see _exceptions.py:10-11). This can occur during:
+
+- Agent registration
+- Action submission
+
+**Example:**
+
+```python
+from avala_agents import AgentTimeoutError
+
+try:
+    agent.run()
+except AgentTimeoutError as e:
+    print(f"Request timed out: {e}")
+    # Retry logic here
+```
+
+<Info>
+The default timeout is 30 seconds (see _agent.py:96). Timeouts during registration are caught at _agent.py:195-196, and during action submission at _agent.py:385-388.
+</Info>
+
+### AgentActionError
+
+Raised when submitting an action (approve, reject, flag, skip) fails (see _exceptions.py:14-19).
+
+**Properties:**
+- `message` - Error description
+- `status_code` - HTTP status code (if available)
+
+**Example:**
+
+```python
+from avala_agents import AgentActionError
+
+@agent.on("result.submitted")
+def handle(context):
+    try:
+        context.approve()
+    except AgentActionError as e:
+        print(f"Failed to approve: {e}")
+        if e.status_code == 404:
+            print("Execution not found")
+        elif e.status_code == 403:
+            print("Permission denied")
+```
+
+See _agent.py:390-398 for the implementation.
+
+### AgentRegistrationError
+
+Raised when the agent fails to register with the Avala platform (see _exceptions.py:22-27).
+
+**Properties:**
+- `message` - Error description
+- `status_code` - HTTP status code (if available)
+
+**Example:**
+
+```python
+from avala_agents import TaskAgent, AgentRegistrationError
+
+try:
+    agent = TaskAgent(api_key="invalid_key")
+    agent.run()
+except AgentRegistrationError as e:
+    print(f"Registration failed: {e}")
+    if e.status_code == 401:
+        print("Invalid API key")
+    elif e.status_code == 403:
+        print("Insufficient permissions")
+```
+
+Registration errors can occur at _agent.py:200-204 (non-2xx response) or _agent.py:209-211 (missing UID in response).
+
+## Error Handling Patterns
+
+### Basic Error Handling
+
+```python
+from avala_agents import TaskAgent, AgentError
+
+agent = TaskAgent(api_key="avk_...")
+
+@agent.on("result.submitted")
+def handle(context):
+    try:
+        # Your logic here
+        if context.result_data:
+            context.approve()
+        else:
+            context.reject("No data")
+    except AgentError as e:
+        print(f"Error: {e}")
+        # Error is logged; execution will be skipped
+
+try:
+    agent.run()
+except KeyboardInterrupt:
+    print("Agent stopped by user")
+except AgentError as e:
+    print(f"Fatal error: {e}")
+finally:
+    agent.close()
+```
+
+### Handler Exception Protection
+
+The SDK automatically catches unhandled exceptions in event handlers (see _runner.py:70-88):
+
+```python
+@agent.on("result.submitted")
+def buggy_handler(context):
+    # This will be caught by the runner
+    raise ValueError("Oops!")
+```
+
+When a handler raises an exception:
+1. The exception is logged with full traceback
+2. A "skip" action is automatically submitted
+3. The agent continues processing other executions
+
+<Warning>
+Unhandled exceptions in handlers will cause the execution to be skipped. Always handle expected errors explicitly.
+</Warning>
+
+### Retry Logic
+
+```python
+import time
+from avala_agents import TaskAgent, AgentTimeoutError
+
+def run_with_retry(agent, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            agent.run()
+            break  # Success
+        except AgentTimeoutError as e:
+            print(f"Attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(5 * (attempt + 1))  # Exponential backoff
+            else:
+                raise
+        except KeyboardInterrupt:
+            print("Stopped by user")
+            break
+        finally:
+            agent.close()
+
+agent = TaskAgent(api_key="avk_...")
+run_with_retry(agent)
+```
+
+### Graceful Shutdown
+
+```python
+import signal
+from avala_agents import TaskAgent
+
+agent = TaskAgent(api_key="avk_...")
+
+def shutdown(signum, frame):
+    print("Shutting down gracefully...")
+    agent.close()
+    exit(0)
+
+signal.signal(signal.SIGTERM, shutdown)
+signal.signal(signal.SIGINT, shutdown)
+
+try:
+    agent.run()
+finally:
+    agent.close()
+```
+
+## Configuration Errors
+
+### Missing API Key
+
+```python
+from avala_agents import TaskAgent
+
+try:
+    agent = TaskAgent()  # No api_key or AVALA_API_KEY
+except ValueError as e:
+    print(f"Configuration error: {e}")
+    # Output: No API key provided. Pass api_key= or set the AVALA_API_KEY environment variable.
+```
+
+See _agent.py:76-78 for the validation logic.
+
+### Invalid Event Type
+
+```python
+try:
+    @agent.on("invalid.event")
+    def handler(context):
+        pass
+except ValueError as e:
+    print(f"Invalid event: {e}")
+```
+
+See _agent.py:123-124 for event validation.
+
+## Logging
+
+The SDK uses Python's built-in `logging` module. Enable debug logging to see detailed error information:
+
+```python
+import logging
+from avala_agents import TaskAgent
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+agent = TaskAgent(api_key="avk_...")
+agent.run()
+```
+
+**Log Levels:**
+- `DEBUG` - Detailed execution flow (handler dispatch, actions submitted)
+- `INFO` - Agent lifecycle (registration, polling start/stop)
+- `WARNING` - Recoverable issues (no handler for event, fetch failures)
+- `ERROR` - Non-fatal errors (network errors, HTTP failures)
+- `EXCEPTION` - Unhandled exceptions in handlers
+
+<Tip>
+Use `INFO` level in production and `DEBUG` for troubleshooting.
+</Tip>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always use context managers or close()">
+    ```python
+    # Good: Context manager
+    with TaskAgent(api_key="avk_...") as agent:
+        agent.run()
+    
+    # Good: Explicit close
+    agent = TaskAgent(api_key="avk_...")
+    try:
+        agent.run()
+    finally:
+        agent.close()
+    ```
+  </Accordion>
+
+  <Accordion title="Handle specific exceptions first">
+    ```python
+    try:
+        agent.run()
+    except AgentTimeoutError:
+        # Handle timeout
+        pass
+    except AgentRegistrationError:
+        # Handle registration failure
+        pass
+    except AgentError:
+        # Handle other agent errors
+        pass
+    ```
+  </Accordion>
+
+  <Accordion title="Log errors for debugging">
+    ```python
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        agent.run()
+    except AgentError as e:
+        logger.exception("Agent failed: %s", e)
+        raise
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Polling Modes" icon="arrows-rotate" href="/guides/polling-modes">
+    Learn about blocking vs non-blocking execution
+  </Card>
+  <Card title="Best Practices" icon="star" href="/guides/best-practices">
+    Follow security and performance guidelines
+  </Card>
+</CardGroup>
