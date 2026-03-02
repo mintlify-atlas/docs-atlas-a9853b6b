@@ -7,6 +7,10 @@ description: Event type constants and identifiers
 
 The Avala Agents SDK defines several constants that categorize the different types of events your agent can handle. These constants are used internally by the SDK to route events to the appropriate context class and validate event identifiers.
 
+<Note>
+  These constants are internal to the SDK and not exported in the public API. You typically reference events by their string identifiers (e.g., `"result.submitted"`) rather than importing these constants. This page documents them for reference purposes.
+</Note>
+
 ## Event Type Constants
 
 ### AGENT_EVENTS
@@ -14,7 +18,7 @@ The Avala Agents SDK defines several constants that categorize the different typ
 Complete list of all event identifiers supported by the agent framework.
 
 ```python
-from avala_agents import AGENT_EVENTS
+from avala_agents._types import AGENT_EVENTS
 
 print(AGENT_EVENTS)
 # ['dataset.created', 'dataset.updated', 'dataset.deleted',
@@ -40,7 +44,7 @@ print(AGENT_EVENTS)
 Events whose execution payload contains result-level data. Handlers for these events receive a `ResultContext` object.
 
 ```python
-from avala_agents import RESULT_EVENTS
+from avala_agents._types import RESULT_EVENTS
 
 print(RESULT_EVENTS)
 # {'result.submitted', 'result.accepted', 'result.rejected'}
@@ -58,7 +62,7 @@ print(RESULT_EVENTS)
 Events whose execution payload contains task-level data. Handlers for these events receive a `TaskContext` object.
 
 ```python
-from avala_agents import TASK_EVENTS
+from avala_agents._types import TASK_EVENTS
 
 print(TASK_EVENTS)
 # {'task.completed'}
@@ -74,7 +78,7 @@ print(TASK_EVENTS)
 Events whose execution payload contains dataset-level data. Handlers for these events receive an `EventContext` object.
 
 ```python
-from avala_agents import DATASET_EVENTS
+from avala_agents._types import DATASET_EVENTS
 
 print(DATASET_EVENTS)
 # {'dataset.created', 'dataset.updated', 'dataset.deleted'}
@@ -92,7 +96,7 @@ print(DATASET_EVENTS)
 Events whose execution payload contains export-level data. Handlers for these events receive an `EventContext` object.
 
 ```python
-from avala_agents import EXPORT_EVENTS
+from avala_agents._types import EXPORT_EVENTS
 
 print(EXPORT_EVENTS)
 # {'export.completed', 'export.failed'}
@@ -125,7 +129,7 @@ The SDK automatically maps event types to the appropriate context class:
 ### Validating Event Types
 
 ```python
-from avala_agents import TaskAgent, AGENT_EVENTS
+from avala_agents import TaskAgent
 
 agent = TaskAgent(api_key="avk_...")
 
@@ -147,7 +151,7 @@ except ValueError as e:
 ### Checking Event Categories
 
 ```python
-from avala_agents import RESULT_EVENTS, TASK_EVENTS
+from avala_agents._types import RESULT_EVENTS, TASK_EVENTS
 
 def handle_event(event_type: str):
     if event_type in RESULT_EVENTS:
@@ -165,7 +169,8 @@ handle_event("dataset.created")    # "This is a dataset or export event"
 ### Dynamic Handler Registration
 
 ```python
-from avala_agents import TaskAgent, RESULT_EVENTS
+from avala_agents import TaskAgent
+from avala_agents._types import RESULT_EVENTS
 
 agent = TaskAgent(api_key="avk_...")
 
@@ -180,7 +185,8 @@ for event_type in RESULT_EVENTS:
 ### Filtering Events by Category
 
 ```python
-from avala_agents import TaskAgent, RESULT_EVENTS, TASK_EVENTS
+from avala_agents import TaskAgent
+from avala_agents._types import RESULT_EVENTS, TASK_EVENTS
 
 agent = TaskAgent(api_key="avk_...")
 
