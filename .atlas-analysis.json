@@ -1,0 +1,130 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Avala Agents SDK",
+  "projectDescription": "Build custom annotation workflow agents for the Avala platform",
+  "theme": "palm",
+  "primaryColor": "#6366F1",
+  "lightColor": "#818CF8",
+  "darkColor": "#4F46E5",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/agents",
+              "concepts/events",
+              "concepts/contexts",
+              "concepts/actions"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/configuration",
+              "guides/error-handling",
+              "guides/polling-modes",
+              "guides/best-practices"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/quality-checker",
+              "examples/confidence-filter",
+              "examples/multi-event-agent",
+              "examples/task-completion"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Classes",
+            "pages": [
+              "api/task-agent",
+              "api/result-context",
+              "api/task-context",
+              "api/event-context"
+            ]
+          },
+          {
+            "group": "Types & Events",
+            "pages": [
+              "api/agent-event",
+              "api/event-types"
+            ]
+          },
+          {
+            "group": "Exceptions",
+            "pages": [
+              "api/exceptions"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Additional Resources",
+            "pages": [
+              "resources/contributing",
+              "resources/security",
+              "resources/changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Event-driven agent framework for annotation workflows",
+    "Support for result, task, dataset, and export events",
+    "Context-based action system (approve, reject, flag, skip)",
+    "Blocking and non-blocking polling modes",
+    "Project and task type filtering",
+    "Comprehensive error handling with custom exceptions",
+    "Environment variable and constructor-based configuration",
+    "Built on httpx for reliable HTTP communication"
+  ],
+  "publicApiSurface": [
+    "TaskAgent",
+    "TaskAgent.on(event)",
+    "TaskAgent.run()",
+    "TaskAgent.run_once()",
+    "TaskAgent.close()",
+    "ResultContext",
+    "ResultContext.approve(reason)",
+    "ResultContext.reject(reason)",
+    "ResultContext.flag(reason)",
+    "ResultContext.skip()",
+    "TaskContext",
+    "TaskContext.approve(reason)",
+    "TaskContext.reject(reason)",
+    "TaskContext.flag(reason)",
+    "TaskContext.skip()",
+    "EventContext",
+    "EventContext.approve(reason)",
+    "EventContext.reject(reason)",
+    "EventContext.flag(reason)",
+    "EventContext.skip()",
+    "AgentEvent",
+    "AgentError",
+    "AgentTimeoutError",
+    "AgentActionError",
+    "AgentRegistrationError"
+  ]
+}
